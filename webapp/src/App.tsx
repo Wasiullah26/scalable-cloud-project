@@ -294,6 +294,14 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [dirty])
 
+  useEffect(() => {
+    const el = editorRef.current
+    if (!el) return
+    el.style.height = '0px'
+    const h = Math.max(el.scrollHeight, 280)
+    el.style.height = `${h}px`
+  }, [noteBody, noteId])
+
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (f) setFile(f)
@@ -886,37 +894,82 @@ export default function App() {
 
           {page === 'translate' && (
             <>
-              <div className="note-toolbar block">
-                <p className="block-caption">Import from image (classmate OCR) · choose languages · translate the whole note or a selection.</p>
-                <div className="note-ocr-row">
-                  <input type="file" accept="image/*" onChange={onFileChange} className="file-input" title="Images only (no PDF)" />
-                  {file && <span className="file-name">{file.name}</span>}
-                  <button type="button" onClick={extractText} disabled={!file || loading} className="btn-primary">
-                    {loading ? 'Extracting…' : 'Add text from image'}
-                  </button>
-                </div>
-                <div className="note-toolbar-meta">
-                  {noteId && (
-                    <span className="note-save-pill">
-                      {saveStatus === 'saving' && 'Saving…'}
-                      {saveStatus === 'saved' && 'Saved'}
-                      {saveStatus === 'error' && 'Save failed'}
-                      {saveStatus === 'idle' && dirty && 'Unsaved changes'}
-                      {saveStatus === 'idle' && !dirty && 'All changes saved'}
-                    </span>
-                  )}
-                  {!noteId && noteBody.trim() && (
-                    <span className="note-save-pill muted">Not saved yet</span>
-                  )}
-                  <button type="button" className="btn-save-note-primary" onClick={handleSaveNote} disabled={loading || !noteBody.trim()}>
-                    {loading ? '…' : noteId ? 'Save now' : 'Save note'}
-                  </button>
-                  {noteId && (
-                    <button type="button" className="btn-danger-sm" onClick={() => handleDeleteSaved(noteId)}>
-                      Delete note
+              <section className="note-page" aria-label="Notes workspace">
+                <div className="note-import-strip">
+                  <span className="note-import-label">Import</span>
+                  <div className="note-import-controls">
+                    <label className="note-file-label">
+                      <span className="note-file-btn">Choose image</span>
+                      <input type="file" accept="image/*" onChange={onFileChange} className="note-file-input" title="Images only (no PDF)" />
+                    </label>
+                    {file && <span className="file-name">{file.name}</span>}
+                    <button type="button" onClick={extractText} disabled={!file || loading} className="btn-primary btn-compact">
+                      {loading ? 'Extracting…' : 'Add text from image'}
                     </button>
-                  )}
+                  </div>
+                  <p className="note-import-hint">OCR adds text into your note below. Open a saved note from the sidebar anytime.</p>
                 </div>
+
+                <div className="note-editor-wrap">
+                  <textarea
+                    ref={editorRef}
+                    value={noteBody}
+                    onChange={(e) => {
+                      setNoteBody(e.target.value)
+                      setDirty(true)
+                      setSaveStatus('idle')
+                    }}
+                    placeholder="Start writing…"
+                    className="notion-canvas note-editor"
+                    spellCheck
+                  />
+                  <div className="note-save-row">
+                    <div className="note-save-row-status">
+                      {noteId && (
+                        <span className="note-save-pill">
+                          {saveStatus === 'saving' && 'Saving…'}
+                          {saveStatus === 'saved' && 'Saved'}
+                          {saveStatus === 'error' && 'Save failed'}
+                          {saveStatus === 'idle' && dirty && 'Unsaved changes'}
+                          {saveStatus === 'idle' && !dirty && 'All changes saved'}
+                        </span>
+                      )}
+                      {!noteId && noteBody.trim() && (
+                        <span className="note-save-pill muted">Not saved yet</span>
+                      )}
+                    </div>
+                    <div className="note-save-row-actions">
+                      <button type="button" className="btn-save-note-primary" onClick={handleSaveNote} disabled={loading || !noteBody.trim()}>
+                        {loading ? '…' : noteId ? 'Save now' : 'Save note'}
+                      </button>
+                      {noteId && (
+                        <button type="button" className="btn-danger-outline" onClick={() => handleDeleteSaved(noteId)}>
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="textarea-meta note-editor-meta">
+                    <span>{noteBody.length} characters</span>
+                    <div className="textarea-meta-right">
+                      <div className="chips chips-inline">
+                        {SAMPLE_TEXTS.map((s) => (
+                          <button key={s} type="button" className="chip" onClick={() => { setNoteBody(s); setDirty(true); }}>
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                      <button type="button" className="link-btn" onClick={() => { setNoteBody(''); setDirty(true); }}>
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <div className="note-toolbar block">
+                <h2 className="note-panel-title">Translation</h2>
+                <p className="block-caption">Source language, targets, then translate the whole note or a selection.</p>
                 <div className="lang-options">
                   <label className="lang-select-wrap">
                     <span>Source</span>
@@ -966,36 +1019,6 @@ export default function App() {
                   <button type="button" className="btn-secondary" onClick={runGrammarCheck} disabled={grammarLoading || !noteBody.trim()}>
                     {grammarLoading ? 'Checking…' : 'Check grammar'}
                   </button>
-                </div>
-              </div>
-
-              <div className="note-editor-wrap">
-                <textarea
-                  ref={editorRef}
-                  value={noteBody}
-                  onChange={(e) => {
-                    setNoteBody(e.target.value)
-                    setDirty(true)
-                    setSaveStatus('idle')
-                  }}
-                  placeholder="Start writing… Paste text, import from an image above, or open a note from the sidebar."
-                  className="notion-textarea note-editor"
-                  spellCheck
-                />
-                <div className="textarea-meta note-editor-meta">
-                  <span>{noteBody.length} characters</span>
-                  <div className="textarea-meta-right">
-                    <div className="chips">
-                      {SAMPLE_TEXTS.map((s) => (
-                        <button key={s} type="button" className="chip" onClick={() => { setNoteBody(s); setDirty(true); }}>
-                          {s}
-                        </button>
-                      ))}
-                    </div>
-                    <button type="button" className="link-btn" onClick={() => { setNoteBody(''); setDirty(true); }}>
-                      Clear
-                    </button>
-                  </div>
                 </div>
               </div>
 
