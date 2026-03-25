@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   translateText,
   imageToText,
@@ -11,6 +11,7 @@ import {
   updateTranslation,
   deleteTranslation,
   saveNote,
+  patchNote,
   type TranslateResponse,
   type TranslationSummary,
   type LanguageToolResponse,
@@ -63,9 +64,13 @@ type PageId = 'translate' | 'dictionary'
 
 export default function App() {
   const [page, setPage] = useState<PageId>('translate')
-  const [step, setStep] = useState<'upload' | 'text' | 'translated'>('upload')
   const [file, setFile] = useState<File | null>(null)
-  const [extractedText, setExtractedText] = useState('')
+  const [noteId, setNoteId] = useState<string | null>(null)
+  const [noteBody, setNoteBody] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [selectionPreview, setSelectionPreview] = useState<TranslateResponse | null>(null)
+  const editorRef = useRef<HTMLTextAreaElement>(null)
   const [translation, setTranslation] = useState<TranslateResponse | null>(null)
   const [targetLangs, setTargetLangs] = useState<string[]>(DEFAULT_TARGETS)
   const [sourceLang, setSourceLang] = useState('en')
@@ -261,6 +266,34 @@ export default function App() {
   }, [])
   useEffect(() => { loadSavedList() }, [loadSavedList])
 
+  useEffect(() => {
+    if (!noteId || !dirty) return
+    setSaveStatus('idle')
+    const t = window.setTimeout(async () => {
+      setSaveStatus('saving')
+      try {
+        await patchNote(noteId, noteBody, sourceLang)
+        setDirty(false)
+        setSaveStatus('saved')
+        loadSavedList()
+      } catch {
+        setSaveStatus('error')
+      }
+    }, 2500)
+    return () => window.clearTimeout(t)
+  }, [noteBody, noteId, dirty, sourceLang, loadSavedList])
+
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (dirty) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [dirty])
+
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (f) setFile(f)
@@ -273,8 +306,10 @@ export default function App() {
     setError(null)
     try {
       const text = await imageToText(file)
-      setExtractedText(text)
-      setStep('text')
+      setNoteBody((prev) => (prev.trim() ? `${prev.trim()}\n\n${text}` : text))
+      setDirty(true)
+      setSelectionPreview(null)
+      setFile(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Extraction failed')
     } finally {
@@ -283,16 +318,40 @@ export default function App() {
   }
 
   const runTranslate = async () => {
-    const text = extractedText.trim() || (translation?.original_text ?? '')
+    const text = noteBody.trim()
     if (!text) return
     setLoading(true)
     setError(null)
     setGrammarResult(null)
+    setSelectionPreview(null)
     try {
       const targets = translateAllLangs ? Object.keys(LANGS) : targetLangs.length ? targetLangs : DEFAULT_TARGETS
       const result = await translateText(text, targets, sourceLang, false)
-      setTranslation(result)
-      setStep('translated')
+      setTranslation({ ...result, id: noteId ?? undefined })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Translation failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const runTranslateSelection = async () => {
+    const el = editorRef.current
+    if (!el) return
+    const a = el.selectionStart
+    const b = el.selectionEnd
+    if (a === b) {
+      setError('Select text in the note first, then click Translate selection.')
+      return
+    }
+    const sel = noteBody.slice(a, b)
+    if (!sel.trim()) return
+    setLoading(true)
+    setError(null)
+    try {
+      const targets = translateAllLangs ? Object.keys(LANGS) : targetLangs.length ? targetLangs : DEFAULT_TARGETS
+      const result = await translateText(sel, targets, sourceLang, false)
+      setSelectionPreview(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Translation failed')
     } finally {
@@ -301,12 +360,23 @@ export default function App() {
   }
 
   const handleSaveNote = async () => {
-    if (!translation) return
+    if (!noteBody.trim()) {
+      setError('Add some text before saving.')
+      return
+    }
     setLoading(true)
     setError(null)
     try {
-      const saved = await saveNote(translation.original_text, translation.source_lang, translation.translations)
-      setTranslation(saved)
+      if (!noteId) {
+        const saved = await saveNote(noteBody, sourceLang, translation?.translations ?? {})
+        setNoteId(saved.id ?? null)
+        setTranslation(saved)
+      } else {
+        const saved = await patchNote(noteId, noteBody, sourceLang, translation?.translations ?? undefined)
+        setTranslation(saved)
+      }
+      setDirty(false)
+      setSaveStatus('saved')
       loadSavedList()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
@@ -315,8 +385,57 @@ export default function App() {
     }
   }
 
+  const handleNewNote = () => {
+    if (dirty && noteBody.trim()) {
+      if (!window.confirm('You have unsaved changes. Start a new note anyway?')) return
+    }
+    setNoteId(null)
+    setNoteBody('')
+    setTranslation(null)
+    setDirty(false)
+    setSelectionPreview(null)
+    setGrammarResult(null)
+    setFile(null)
+    setError(null)
+    setSaveStatus('idle')
+  }
+
+  const openNote = async (id: string) => {
+    if (id === noteId) {
+      closeMobileSidebar()
+      return
+    }
+    if (dirty) {
+      if (noteId) {
+        try {
+          await patchNote(noteId, noteBody, sourceLang)
+          setDirty(false)
+        } catch {
+          if (!window.confirm('Could not save. Continue?')) return
+        }
+      } else if (noteBody.trim()) {
+        if (!window.confirm('Discard unsaved note?')) return
+      }
+    }
+    try {
+      const t = await getTranslation(id)
+      setNoteId(t.id ?? id)
+      setNoteBody(t.original_text)
+      setSourceLang(t.source_lang)
+      setTranslation(t)
+      setDirty(false)
+      setSelectionPreview(null)
+      setGrammarResult(null)
+      setError(null)
+      setPage('translate')
+      closeMobileSidebar()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load')
+    }
+  }
+
   const runGrammarCheck = async () => {
-    const text = extractedText.trim()
+    const text = noteBody.trim()
     if (!text) return
     setGrammarLoading(true)
     setError(null)
@@ -346,28 +465,15 @@ export default function App() {
     }
   }
 
-  const loadSaved = async (id: string) => {
-    try {
-      const t = await getTranslation(id)
-      setTranslation(t)
-      setExtractedText(t.original_text)
-      setStep('translated')
-      setPage('translate')
-      closeMobileSidebar()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load')
-    }
-  }
-
   const handleUpdateSaved = async () => {
-    if (!translation?.id) return
-    const text = extractedText.trim()
+    if (!noteId) return
+    const text = noteBody.trim()
     if (!text) return
     setLoading(true)
     setError(null)
     try {
       const targets = translateAllLangs ? Object.keys(LANGS) : targetLangs.length ? targetLangs : DEFAULT_TARGETS
-      const updated = await updateTranslation(translation.id, text, sourceLang, targets)
+      const updated = await updateTranslation(noteId, text, sourceLang, targets)
       setTranslation(updated)
       loadSavedList()
     } catch (err) {
@@ -380,24 +486,19 @@ export default function App() {
   const handleDeleteSaved = async (id: string) => {
     try {
       await deleteTranslation(id)
-      if (translation?.id === id) {
+      if (noteId === id) {
+        setNoteId(null)
+        setNoteBody('')
         setTranslation(null)
-        setExtractedText('')
-        setStep('upload')
+        setDirty(false)
+        setSelectionPreview(null)
+        setGrammarResult(null)
+        setSaveStatus('idle')
       }
       loadSavedList()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Delete failed')
     }
-  }
-
-  const reset = () => {
-    setFile(null)
-    setExtractedText('')
-    setTranslation(null)
-    setStep('upload')
-    setError(null)
-    setGrammarResult(null)
   }
 
   const copyToClipboard = (text: string, lang: string) => {
@@ -422,7 +523,7 @@ export default function App() {
   const clearLangs = () => setTargetLangs([])
 
   const navItems: { id: PageId; label: string; icon: string }[] = [
-    { id: 'translate', label: 'Translate', icon: '↔' },
+    { id: 'translate', label: 'Notes', icon: '◆' },
     { id: 'dictionary', label: 'Dictionary', icon: '📖' },
   ]
 
@@ -642,19 +743,30 @@ export default function App() {
         </nav>
         {!sidebarCollapsed && (
           <div className="sidebar-saved-section">
-            <div className="sidebar-section-title">My notes</div>
+            <div className="sidebar-saved-header">
+              <span className="sidebar-section-title">My notes</span>
+              <button
+                type="button"
+                className="sidebar-new-note-btn"
+                onClick={handleNewNote}
+                title="New note"
+                aria-label="New note"
+              >
+                +
+              </button>
+            </div>
             {savedListLoading ? (
               <div className="sidebar-saved-muted">Loading…</div>
             ) : savedList.length === 0 ? (
-              <div className="sidebar-saved-muted">No saved notes yet</div>
+              <div className="sidebar-saved-muted">No notes yet — use + or start typing</div>
             ) : (
               <ul className="sidebar-saved-list">
                 {savedList.map((item) => (
                   <li key={item.id}>
                     <button
                       type="button"
-                      className={`sidebar-saved-item ${translation?.id === item.id ? 'active' : ''}`}
-                      onClick={() => loadSaved(item.id)}
+                      className={`sidebar-saved-item ${noteId === item.id ? 'active' : ''}`}
+                      onClick={() => void openNote(item.id)}
                     >
                       <span className="sidebar-saved-icon">📄</span>
                       <span className="sidebar-saved-label">
@@ -705,7 +817,7 @@ export default function App() {
             )}
             <div className="topbar-titles">
               <h1 className="topbar-title">
-                {page === 'translate' && 'Translate'}
+                {page === 'translate' && 'Notes'}
                 {page === 'dictionary' && 'Dictionary'}
               </h1>
               <p className="topbar-sub">Private page · {user?.email ?? ''}</p>
@@ -774,136 +886,176 @@ export default function App() {
 
           {page === 'translate' && (
             <>
-              {step === 'upload' && (
-                <div className="block">
-                  <h2 className="block-title">New translation</h2>
-                  <p className="block-caption">Extract text from an image (classmate API) or type below. Images only (e.g. JPG, PNG) — PDF is not supported.</p>
-                  <div className="block-body">
-                    <input type="file" accept="image/*" onChange={onFileChange} className="file-input" title="Images only (no PDF)" />
-                    {file && <p className="file-name">{file.name}</p>}
-                    <button type="button" onClick={extractText} disabled={!file || loading} className="btn-primary">
-                      {loading ? 'Extracting…' : 'Extract text'}
+              <div className="note-toolbar block">
+                <p className="block-caption">Import from image (classmate OCR) · choose languages · translate the whole note or a selection.</p>
+                <div className="note-ocr-row">
+                  <input type="file" accept="image/*" onChange={onFileChange} className="file-input" title="Images only (no PDF)" />
+                  {file && <span className="file-name">{file.name}</span>}
+                  <button type="button" onClick={extractText} disabled={!file || loading} className="btn-primary">
+                    {loading ? 'Extracting…' : 'Add text from image'}
+                  </button>
+                </div>
+                <div className="note-toolbar-meta">
+                  {noteId && (
+                    <span className="note-save-pill">
+                      {saveStatus === 'saving' && 'Saving…'}
+                      {saveStatus === 'saved' && 'Saved'}
+                      {saveStatus === 'error' && 'Save failed'}
+                      {saveStatus === 'idle' && dirty && 'Unsaved changes'}
+                      {saveStatus === 'idle' && !dirty && 'All changes saved'}
+                    </span>
+                  )}
+                  {!noteId && noteBody.trim() && (
+                    <span className="note-save-pill muted">Not saved yet</span>
+                  )}
+                  <button type="button" className="btn-save-note-primary" onClick={handleSaveNote} disabled={loading || !noteBody.trim()}>
+                    {loading ? '…' : noteId ? 'Save now' : 'Save note'}
+                  </button>
+                  {noteId && (
+                    <button type="button" className="btn-danger-sm" onClick={() => handleDeleteSaved(noteId)}>
+                      Delete note
                     </button>
-                    <p className="or">— or —</p>
-                    <button type="button" className="btn-ghost" onClick={() => { setStep('text'); setExtractedText(''); }}>
-                      Type or paste text
+                  )}
+                </div>
+                <div className="lang-options">
+                  <label className="lang-select-wrap">
+                    <span>Source</span>
+                    <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)}>
+                      <option value="en">English</option>
+                      {Object.entries(LANGS).map(([code, name]) => (
+                        <option key={code} value={code}>{name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="checkbox-wrap">
+                    <input type="checkbox" checked={translateAllLangs} onChange={(e) => setTranslateAllLangs(e.target.checked)} />
+                    All languages
+                  </label>
+                  {!translateAllLangs && (
+                    <div className="lang-checkboxes">
+                      {Object.entries(LANGS).map(([code, name]) => (
+                        <label key={code}>
+                          <input
+                            type="checkbox"
+                            checked={targetLangs.includes(code)}
+                            onChange={(e) => setTargetLangs((prev) => e.target.checked ? [...prev, code] : prev.filter((l) => l !== code))}
+                          />
+                          {name}
+                        </label>
+                      ))}
+                      <div className="lang-actions">
+                        <button type="button" className="link-btn" onClick={selectAllLangs}>All</button>
+                        <button type="button" className="link-btn" onClick={clearLangs}>None</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="note-toolbar-actions">
+                  <button type="button" className="btn-primary" onClick={runTranslate} disabled={loading || !noteBody.trim()}>
+                    {loading ? 'Translating…' : 'Translate whole note'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={runTranslateSelection}
+                    disabled={loading || !noteBody.trim()}
+                    title="Select text in the note first"
+                  >
+                    Translate selection
+                  </button>
+                  <button type="button" className="btn-secondary" onClick={runGrammarCheck} disabled={grammarLoading || !noteBody.trim()}>
+                    {grammarLoading ? 'Checking…' : 'Check grammar'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="note-editor-wrap">
+                <textarea
+                  ref={editorRef}
+                  value={noteBody}
+                  onChange={(e) => {
+                    setNoteBody(e.target.value)
+                    setDirty(true)
+                    setSaveStatus('idle')
+                  }}
+                  placeholder="Start writing… Paste text, import from an image above, or open a note from the sidebar."
+                  className="notion-textarea note-editor"
+                  spellCheck
+                />
+                <div className="textarea-meta note-editor-meta">
+                  <span>{noteBody.length} characters</span>
+                  <div className="textarea-meta-right">
+                    <div className="chips">
+                      {SAMPLE_TEXTS.map((s) => (
+                        <button key={s} type="button" className="chip" onClick={() => { setNoteBody(s); setDirty(true); }}>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                    <button type="button" className="link-btn" onClick={() => { setNoteBody(''); setDirty(true); }}>
+                      Clear
                     </button>
                   </div>
+                </div>
+              </div>
+
+              {grammarResult && grammarResult.matches.length > 0 && (
+                <div className="block grammar-block">
+                  <strong>Grammar</strong>
+                  <ul>
+                    {grammarResult.matches.map((m, i) => (
+                      <li key={i}>{m.message}{m.replacements?.length ? ` → ${m.replacements.slice(0, 2).map((r) => r.value).join(', ')}` : ''}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {grammarResult && grammarResult.matches.length === 0 && noteBody.trim() && (
+                <p className="grammar-ok block">No grammar issues found.</p>
+              )}
+
+              {selectionPreview && Object.keys(selectionPreview.translations).length > 0 && (
+                <div className="block selection-trans-block">
+                  <div className="block-head">
+                    <h2 className="block-title">Selection translation</h2>
+                    <button type="button" className="link-btn" onClick={() => setSelectionPreview(null)}>Dismiss</button>
+                  </div>
+                  <ul className="trans-list">
+                    {Object.entries(selectionPreview.translations).map(([lang, text]) => (
+                      <li key={lang}>
+                        <strong>{LANGS[lang] ?? lang}</strong>
+                        <span>{text}</span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
 
-              {(step === 'text' || step === 'translated') && (
-                <>
-                  <div className="block">
-                    <h2 className="block-title">Text</h2>
-                    <div className="textarea-wrap">
-                      <textarea
-                        value={extractedText}
-                        onChange={(e) => setExtractedText(e.target.value)}
-                        rows={5}
-                        placeholder="Type or paste text to translate…"
-                        className="notion-textarea"
-                      />
-                      <div className="textarea-meta">
-                        <span>{extractedText.length} chars</span>
-                        <button type="button" className="link-btn" onClick={() => setExtractedText('')}>Clear</button>
-                      </div>
-                    </div>
-                    <div className="block-actions">
-                      <button type="button" className="btn-secondary" onClick={runGrammarCheck} disabled={grammarLoading || !extractedText.trim()}>
-                        {grammarLoading ? 'Checking…' : 'Check grammar'}
-                      </button>
-                    </div>
-                    {grammarResult && grammarResult.matches.length > 0 && (
-                      <div className="grammar-result">
-                        <strong>Issues</strong>
-                        <ul>
-                          {grammarResult.matches.map((m, i) => (
-                            <li key={i}>{m.message}{m.replacements?.length ? ` → ${m.replacements.slice(0, 2).map(r => r.value).join(', ')}` : ''}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {grammarResult && grammarResult.matches.length === 0 && <p className="grammar-ok">No issues found.</p>}
-                    <div className="chips">
-                      {SAMPLE_TEXTS.map((s) => (
-                        <button key={s} type="button" className="chip" onClick={() => setExtractedText(s)}>{s}</button>
-                      ))}
-                    </div>
-                    <div className="lang-options">
-                      <label className="lang-select-wrap">
-                        <span>Source</span>
-                        <select value={sourceLang} onChange={(e) => setSourceLang(e.target.value)}>
-                          <option value="en">English</option>
-                          {Object.entries(LANGS).map(([code, name]) => (
-                            <option key={code} value={code}>{name}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="checkbox-wrap">
-                        <input type="checkbox" checked={translateAllLangs} onChange={(e) => setTranslateAllLangs(e.target.checked)} />
-                        All languages
-                      </label>
-                      {!translateAllLangs && (
-                        <div className="lang-checkboxes">
-                          {Object.entries(LANGS).map(([code, name]) => (
-                            <label key={code}>
-                              <input
-                                type="checkbox"
-                                checked={targetLangs.includes(code)}
-                                onChange={(e) => setTargetLangs((prev) => e.target.checked ? [...prev, code] : prev.filter((l) => l !== code))}
-                              />
-                              {name}
-                            </label>
-                          ))}
-                          <div className="lang-actions">
-                            <button type="button" className="link-btn" onClick={selectAllLangs}>All</button>
-                            <button type="button" className="link-btn" onClick={clearLangs}>None</button>
-                          </div>
-                        </div>
+              {translation && Object.keys(translation.translations).length > 0 && (
+                <div className="block">
+                  <div className="block-head">
+                    <h2 className="block-title">Whole-note translation</h2>
+                    <div className="block-buttons">
+                      {noteId && (
+                        <button type="button" className="btn-secondary-sm" onClick={handleUpdateSaved} disabled={loading}>
+                          Retranslate &amp; update
+                        </button>
                       )}
+                      <button type="button" className="btn-secondary-sm" onClick={copyAllTranslations}>{copiedLang === 'all' ? 'Copied' : 'Copy all'}</button>
                     </div>
-                    <button type="button" onClick={runTranslate} disabled={loading} className="btn-primary">
-                      {loading ? 'Translating…' : 'Translate'}
-                    </button>
                   </div>
-
-                  {translation && (
-                    <div className="block">
-                <div className="block-head">
-                  <h2 className="block-title">Translations</h2>
-                  <div className="block-buttons">
-                    {!translation.id ? (
-                      <button type="button" className="btn-save-note-primary" onClick={handleSaveNote} disabled={loading}>
-                        {loading ? 'Saving…' : 'Save this note'}
-                      </button>
-                    ) : (
-                      <>
-                        <button type="button" className="btn-secondary-sm" onClick={handleUpdateSaved} disabled={loading}>Update</button>
-                        <button type="button" className="btn-danger-sm" onClick={() => translation.id && handleDeleteSaved(translation.id)}>Delete</button>
-                      </>
-                    )}
-                    <button type="button" className="btn-secondary-sm" onClick={copyAllTranslations}>{copiedLang === 'all' ? 'Copied' : 'Copy all'}</button>
-                  </div>
+                  {noteId && <p className="saved-id">Note id · {noteId.slice(0, 8)}…</p>}
+                  <ul className="trans-list">
+                    {Object.entries(translation.translations).map(([lang, text]) => (
+                      <li key={lang}>
+                        <strong>{LANGS[lang] ?? lang}</strong>
+                        <span>{text}</span>
+                        <button type="button" className="copy-btn" onClick={() => copyToClipboard(text, lang)} title="Copy">{copiedLang === lang ? '✓' : '📋'}</button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button type="button" className="link-btn" onClick={() => setShowRaw((r) => !r)}>{showRaw ? 'Hide' : 'Show'} JSON</button>
+                  {showRaw && <pre className="raw-json">{JSON.stringify(translation, null, 2)}</pre>}
                 </div>
-                      {translation.id && <p className="saved-id">Saved · {translation.id.slice(0, 8)}…</p>}
-                      <p className="original">Original: {translation.original_text}</p>
-                      <ul className="trans-list">
-                        {Object.entries(translation.translations).map(([lang, text]) => (
-                          <li key={lang}>
-                            <strong>{LANGS[lang] ?? lang}</strong>
-                            <span>{text}</span>
-                            <button type="button" className="copy-btn" onClick={() => copyToClipboard(text, lang)} title="Copy">{copiedLang === lang ? '✓' : '📋'}</button>
-                          </li>
-                        ))}
-                      </ul>
-                      <button type="button" className="link-btn" onClick={() => setShowRaw((r) => !r)}>{showRaw ? 'Hide' : 'Show'} JSON</button>
-                      {showRaw && <pre className="raw-json">{JSON.stringify(translation, null, 2)}</pre>}
-                    </div>
-                  )}
-
-                  <button type="button" className="btn-ghost" onClick={reset}>Start over</button>
-                </>
               )}
             </>
           )}

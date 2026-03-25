@@ -72,7 +72,7 @@ export async function listTranslations(): Promise<TranslationSummary[]> {
 export async function saveNote(
   originalText: string,
   sourceLang: string,
-  translations: Record<string, string>
+  translations: Record<string, string> = {}
 ): Promise<TranslateResponse> {
   const res = await fetch(`${TRANSLATE_BASE}/translations`, {
     method: 'POST',
@@ -82,6 +82,32 @@ export async function saveNote(
       source_lang: sourceLang,
       translations,
     }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error((err as { detail?: string }).detail || 'Save failed')
+  }
+  return res.json()
+}
+
+/** Save note body only (no MyMemory call). Omitting translations keeps existing on server. */
+export async function patchNote(
+  id: string,
+  originalText: string,
+  sourceLang?: string,
+  translations?: Record<string, string> | null
+): Promise<TranslateResponse> {
+  const body: Record<string, unknown> = {
+    original_text: originalText,
+    source_lang: sourceLang ?? 'en',
+  }
+  if (translations != null) {
+    body.translations = translations
+  }
+  const res = await fetch(`${TRANSLATE_BASE}/translate/${id}`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify(body),
   })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))

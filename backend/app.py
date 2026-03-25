@@ -65,9 +65,17 @@ class TranslationSummary(BaseModel):
 
 
 class SaveNoteRequest(BaseModel):
-    original_text: str = Field(..., min_length=1)
+    original_text: str = Field(default="")
     source_lang: str = Field(default="en")
-    translations: Dict[str, str] = Field(..., min_length=1)
+    translations: Dict[str, str] = Field(default_factory=dict)
+
+
+class NotePatchRequest(BaseModel):
+    """Update note body (and optionally translations) without re-calling the translation API."""
+
+    original_text: str = Field(default="")
+    source_lang: str = Field(default="en")
+    translations: Optional[Dict[str, str]] = None
 
 
 async def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
@@ -259,6 +267,40 @@ async def get_translation(
         source_lang=r["source_lang"],
         translations=r["translations"],
         created_at=r["created_at"],
+    )
+
+
+@app.patch("/translate/{id}", response_model=TranslateResponse)
+async def patch_note(
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    id: str = Path(..., description="Translation record ID"),
+    req: NotePatchRequest = ...,
+):
+    existing = store_get(id)
+    _assert_note_owner(existing, user_id)
+    from datetime import datetime
+
+    now = datetime.utcnow().isoformat() + "Z"
+    if req.translations is not None:
+        translations = req.translations
+    else:
+        translations = dict(existing.get("translations") or {})
+    record = {
+        "id": id,
+        "user_id": user_id,
+        "original_text": req.original_text,
+        "source_lang": req.source_lang,
+        "translations": translations,
+        "created_at": existing["created_at"],
+        "updated_at": now,
+    }
+    store_put(record)
+    return TranslateResponse(
+        id=record["id"],
+        original_text=record["original_text"],
+        source_lang=record["source_lang"],
+        translations=record["translations"],
+        created_at=record["created_at"],
     )
 
 
