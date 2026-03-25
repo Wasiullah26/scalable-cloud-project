@@ -7,7 +7,6 @@
 #   AWS_REGION              — default us-east-1 (secret or Variables)
 #   JWT_SECRET              — Lambda auth (recommended)
 #   LAMBDA_ROLE_ARN         — only if deploy cannot create/use the default role
-#   CORS_ORIGINS            — optional; passed to deploy.py for HTTP API CORS (not Lambda env). Omit = *.
 # Table/API names use deploy.py defaults (translations, users, text-to-languages-api, …).
 
 name: Deploy backend (Lambda)
@@ -83,5 +82,4 @@ jobs:
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           LAMBDA_ROLE_ARN: ${{ secrets.LAMBDA_ROLE_ARN }}
-          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
         run: python -u deploy.py

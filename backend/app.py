@@ -1,7 +1,6 @@
 """Translate API: multi-language text, auth, saved notes (DynamoDB)."""
 
 import logging
-import os
 import re
 import uuid
 from typing import Annotated, Any, Dict, List, Optional
@@ -24,19 +23,16 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS: In Lambda, API Gateway HTTP API CORS is configured in deploy.py (OPTIONS + response headers).
-# Adding CORSMiddleware here too would duplicate headers and break browsers — skip in Lambda.
-# Local `uvicorn` has no API Gateway — use CORSMiddleware only when not in Lambda.
-if not os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
-    _cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
-    _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw else ["*"]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=_cors_origins,
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# CORS — browser calls from another host (e.g. Amplify).
+# Do not use allow_credentials=True with allow_origins=["*"] — browsers block that combo.
+# JWT is sent via Authorization header; we do not rely on cross-origin cookies.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class TranslateRequest(BaseModel):

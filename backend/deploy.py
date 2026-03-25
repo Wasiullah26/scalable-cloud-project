@@ -44,20 +44,6 @@ USERS_TABLE_NAME = _env_str("USERS_TABLE", "users")
 
 ZIP_PATH = BACKEND_DIR / "lambda_deploy.zip"
 
-
-def _http_api_cors_configuration():
-    """Browser CORS at the HTTP API (deploy env CORS_ORIGINS or *). Not duplicated in FastAPI when on Lambda."""
-    raw = os.environ.get("CORS_ORIGINS", "").strip()
-    origins = [o.strip() for o in raw.split(",") if o.strip()] if raw else ["*"]
-    return {
-        "AllowOrigins": origins,
-        "AllowMethods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
-        "AllowHeaders": ["*"],
-        "ExposeHeaders": ["*"],
-        "MaxAge": 86400,
-    }
-
-
 def build_zip():
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
@@ -228,7 +214,6 @@ def create_or_update_lambda(lambda_client, role_arn, translations_table_name=Non
         _wait_for_lambda_ready(lambda_client)
         current_env = cfg.get("Environment", {}).get("Variables") or {}
         new_env = {**current_env, **env_vars}
-        new_env.pop("CORS_ORIGINS", None)
         try:
             lambda_client.update_function_configuration(
                 FunctionName=FUNCTION_NAME,
@@ -283,16 +268,20 @@ def create_api_and_routes(apigw, lambda_client, function_arn, account_id):
         api = apigw.create_api(
             Name=API_NAME,
             ProtocolType="HTTP",
-            CorsConfiguration=_http_api_cors_configuration(),
         )
         api_id = api["ApiId"]
         print(f"Created API: {API_NAME} ({api_id})")
-    else:
-        try:
-            apigw.update_api(ApiId=api_id, CorsConfiguration=_http_api_cors_configuration())
-            print("API Gateway CORS updated (browser preflight + response headers; no FastAPI CORS in Lambda).")
-        except ClientError as e:
-            print(f"Warning: could not update API Gateway CORS: {e}")
+
+    # Do NOT use API Gateway–managed CORS. It answers OPTIONS at the edge and often conflicts
+    # with FastAPI's CORSMiddleware (duplicate / wrong ACAO → browser "CORS error"). Remove any
+    # existing GW CORS so OPTIONS + all methods go through Lambda (Mangum → FastAPI).
+    try:
+        apigw.delete_cors_configuration(ApiId=api_id)
+        print("API Gateway CORS disabled — FastAPI handles CORS only.")
+    except ClientError as e:
+        code = e.response.get("Error", {}).get("Code", "")
+        if code not in ("NotFoundException",):
+            print(f"Warning: delete_cors_configuration: {e}")
 
     integration_id = None
     try:
