@@ -24,18 +24,19 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — single layer in the app (API Gateway CORS is disabled in deploy.py to avoid conflicts).
-# Optional CORS_ORIGINS="https://app.amplifyapp.com,http://localhost:5173" — if unset, allow ["*"].
-
-_cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
-_cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw else ["*"]
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_cors_origins,
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS: In Lambda, API Gateway HTTP API CORS is configured in deploy.py (OPTIONS + response headers).
+# Adding CORSMiddleware here too would duplicate headers and break browsers — skip in Lambda.
+# Local `uvicorn` has no API Gateway — use CORSMiddleware only when not in Lambda.
+if not os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+    _cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
+    _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw else ["*"]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 
 class TranslateRequest(BaseModel):
