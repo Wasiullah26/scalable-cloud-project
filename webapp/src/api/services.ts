@@ -253,19 +253,62 @@ function apiErrorMessage(data: unknown, fallback: string): string {
   return fallback
 }
 
-export async function login(email: string, password: string): Promise<{ token: string; user: AuthUser }> {
-  const res = await fetch(`${TRANSLATE_BASE}/auth/login`, {
+// #region agent log
+function _agentLog(message: string, hypothesisId: string, data: Record<string, unknown>): void {
+  fetch('http://127.0.0.1:7694/ingest/789aa41a-ea81-4a4c-bb6e-205a27bc4c88', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'c35cb3' },
+    body: JSON.stringify({
+      sessionId: 'c35cb3',
+      location: 'services.ts:login',
+      message,
+      hypothesisId,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+}
+// #endregion
+
+export async function login(email: string, password: string): Promise<{ token: string; user: AuthUser }> {
+  const url = `${TRANSLATE_BASE}/auth/login`
+  // #region agent log
+  _agentLog('login_attempt', 'H3', {
+    translateBase: TRANSLATE_BASE,
+    url,
+    origin: typeof window !== 'undefined' ? window.location.origin : 'ssr',
   })
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error(apiErrorMessage(data, 'Login failed'))
+  // #endregion
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    })
+    // #region agent log
+    _agentLog('login_response', 'H3', {
+      ok: res.ok,
+      status: res.status,
+      acao: res.headers.get('access-control-allow-origin'),
+      acac: res.headers.get('access-control-allow-credentials'),
+    })
+    // #endregion
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(apiErrorMessage(data, 'Login failed'))
+    }
+    const data = await res.json()
+    if (typeof localStorage !== 'undefined' && data.token) localStorage.setItem(AUTH_TOKEN_KEY, data.token)
+    return data
+  } catch (e) {
+    // #region agent log
+    _agentLog('login_fetch_error', 'H3', {
+      name: e instanceof Error ? e.name : 'unknown',
+      message: e instanceof Error ? e.message : String(e),
+    })
+    // #endregion
+    throw e
   }
-  const data = await res.json()
-  if (typeof localStorage !== 'undefined' && data.token) localStorage.setItem(AUTH_TOKEN_KEY, data.token)
-  return data
 }
 
 export async function signup(email: string, name: string, password: string): Promise<{ message: string }> {

@@ -24,7 +24,6 @@ app = FastAPI(
 )
 
 # CORS — browser calls from another host (e.g. Amplify).
-# Do not use allow_credentials=True with allow_origins=["*"] — browsers block that combo.
 # JWT is sent via Authorization header; we do not rely on cross-origin cookies.
 app.add_middleware(
     CORSMiddleware,

@@ -1,5 +1,6 @@
 """Deploy this API to Lambda + HTTP API Gateway (boto3, no SAM). Run from backend/: python deploy.py"""
 
+import hashlib
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ import sys
 import time
 import zipfile
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 BACKEND_DIR = Path(__file__).resolve().parent
 _env_file = BACKEND_DIR / ".env"
@@ -24,6 +26,29 @@ try:
 except ImportError:
     print("Install boto3: pip install boto3")
     sys.exit(1)
+
+# region agent log
+_DEBUG_LOG = BACKEND_DIR.parent / ".cursor" / "debug-c35cb3.log"
+
+
+def _agent_debug_log(*, message: str, hypothesis_id: str, data: Optional[Dict[str, Any]] = None) -> None:
+    try:
+        payload = {
+            "sessionId": "c35cb3",
+            "timestamp": int(time.time() * 1000),
+            "location": "deploy.py",
+            "message": message,
+            "hypothesisId": hypothesis_id,
+            "data": data or {},
+        }
+        _DEBUG_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with open(_DEBUG_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, default=str) + "\n")
+    except Exception:
+        pass
+
+
+# endregion
 
 
 def _env_str(key: str, default: str) -> str:
@@ -275,13 +300,23 @@ def create_api_and_routes(apigw, lambda_client, function_arn, account_id):
     # Do NOT use API Gateway–managed CORS. It answers OPTIONS at the edge and often conflicts
     # with FastAPI's CORSMiddleware (duplicate / wrong ACAO → browser "CORS error"). Remove any
     # existing GW CORS so OPTIONS + all methods go through Lambda (Mangum → FastAPI).
+    cors_del_ok = False
+    cors_del_code: Optional[str] = None
     try:
         apigw.delete_cors_configuration(ApiId=api_id)
+        cors_del_ok = True
         print("API Gateway CORS disabled — FastAPI handles CORS only.")
     except ClientError as e:
-        code = e.response.get("Error", {}).get("Code", "")
-        if code not in ("NotFoundException",):
+        cors_del_code = e.response.get("Error", {}).get("Code", "")
+        if cors_del_code not in ("NotFoundException",):
             print(f"Warning: delete_cors_configuration: {e}")
+    # region agent log
+    _agent_debug_log(
+        message="apigw_delete_cors",
+        hypothesis_id="H2",
+        data={"api_id": api_id, "cors_delete_ok": cors_del_ok, "cors_error_code": cors_del_code},
+    )
+    # endregion
 
     integration_id = None
     try:
@@ -342,9 +377,54 @@ def create_api_and_routes(apigw, lambda_client, function_arn, account_id):
     return api_id
 
 
+def _sha256_file_short(path: Path, nbytes: int = 16) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()[:nbytes]
+
+
 def main():
+    # region agent log
+    _agent_debug_log(
+        message="deploy_start",
+        hypothesis_id="H1",
+        data={
+            "github_actions": bool(os.environ.get("GITHUB_ACTIONS")),
+            "github_sha_env": (os.environ.get("GITHUB_SHA") or "")[:12],
+            "ci": bool(os.environ.get("CI")),
+        },
+    )
+    # endregion
     print("Building deployment package...")
     build_zip()
+
+    git_head = ""
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(BACKEND_DIR.parent),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if r.returncode == 0:
+            git_head = r.stdout.strip()
+    except Exception:
+        pass
+    app_py = BACKEND_DIR / "app.py"
+    # region agent log
+    _agent_debug_log(
+        message="deploy_artifacts_after_zip",
+        hypothesis_id="H5",
+        data={
+            "git_head": git_head[:12] if git_head else "",
+            "app_py_sha16": _sha256_file_short(app_py) if app_py.exists() else "",
+            "zip_sha16": _sha256_file_short(ZIP_PATH) if ZIP_PATH.exists() else "",
+        },
+    )
+    # endregion
 
     session = boto3.Session(region_name=REGION)
     account_id = session.client("sts").get_caller_identity()["Account"]
@@ -370,6 +450,13 @@ def main():
 
     print("Configuring API Gateway...")
     api_id = create_api_and_routes(apigw, lambda_client, function_arn, account_id)
+    # region agent log
+    _agent_debug_log(
+        message="deploy_complete",
+        hypothesis_id="H1",
+        data={"api_id": api_id, "region": REGION, "function_name": FUNCTION_NAME},
+    )
+    # endregion
 
     base_url = f"https://{api_id}.execute-api.{REGION}.amazonaws.com"
     print("\n--- Deployment complete ---")
