@@ -25,15 +25,22 @@ except ImportError:
     print("Install boto3: pip install boto3")
     sys.exit(1)
 
-REGION = os.environ.get("AWS_REGION", "us-east-1")
-FUNCTION_NAME = os.environ.get("LAMBDA_FUNCTION_NAME", "text-to-languages-api")
-API_NAME = os.environ.get("API_NAME", "text-to-languages-api")
-ROLE_NAME = os.environ.get("LAMBDA_ROLE_NAME", "text-to-languages-lambda-role")
+
+def _env_str(key: str, default: str) -> str:
+    """GitHub Actions often sets optional secrets to empty string; treat that as unset."""
+    v = os.environ.get(key, "").strip()
+    return v if v else default
+
+
+REGION = _env_str("AWS_REGION", "us-east-1")
+FUNCTION_NAME = _env_str("LAMBDA_FUNCTION_NAME", "text-to-languages-api")
+API_NAME = _env_str("API_NAME", "text-to-languages-api")
+ROLE_NAME = _env_str("LAMBDA_ROLE_NAME", "text-to-languages-lambda-role")
 LAMBDA_ROLE_ARN = os.environ.get("LAMBDA_ROLE_ARN", "").strip()
 LAMBDA_TIMEOUT = 30
 LAMBDA_MEMORY = 256
-TRANSLATIONS_TABLE_NAME = os.environ.get("TRANSLATIONS_TABLE", "translations")
-USERS_TABLE_NAME = os.environ.get("USERS_TABLE", "users")
+TRANSLATIONS_TABLE_NAME = _env_str("TRANSLATIONS_TABLE", "translations")
+USERS_TABLE_NAME = _env_str("USERS_TABLE", "users")
 
 ZIP_PATH = BACKEND_DIR / "lambda_deploy.zip"
 
