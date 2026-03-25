@@ -69,6 +69,10 @@ LAMBDA_MEMORY = 256
 TRANSLATIONS_TABLE_NAME = _env_str("TRANSLATIONS_TABLE", "translations")
 USERS_TABLE_NAME = _env_str("USERS_TABLE", "users")
 
+# Set SKIP_DYNAMODB_ENSURE=1 when CI cannot call DynamoDB (e.g. Voclabs explicit deny from GitHub IPs)
+# but tables already exist. Then deploy only updates Lambda + API Gateway.
+_SKIP_DDB = os.environ.get("SKIP_DYNAMODB_ENSURE", "").strip().lower() in ("1", "true", "yes")
+
 ZIP_PATH = BACKEND_DIR / "lambda_deploy.zip"
 
 
@@ -469,9 +473,29 @@ def main():
     apigw = session.client("apigatewayv2")
     dynamodb = session.client("dynamodb")
 
-    print("Ensuring DynamoDB tables...")
-    ensure_dynamodb_table(dynamodb)
-    ensure_users_table(dynamodb)
+    if _SKIP_DDB:
+        print(
+            "SKIP_DYNAMODB_ENSURE=1 — skipping DynamoDB DescribeTable/create. "
+            "Assume tables already exist; Lambda env still uses TRANSLATIONS_TABLE / USERS_TABLE names."
+        )
+    else:
+        print("Ensuring DynamoDB tables...")
+        try:
+            ensure_dynamodb_table(dynamodb)
+            ensure_users_table(dynamodb)
+        except ClientError as e:
+            code = e.response.get("Error", {}).get("Code", "")
+            if code == "AccessDeniedException":
+                print(
+                    "\n--- DynamoDB AccessDenied ---\n"
+                    "This is usually NOT expired AWS keys (those show ExpiredToken / InvalidClientTokenId).\n"
+                    "Student/Voclabs policies often attach an explicit Deny for DynamoDB from certain callers "
+                    "(e.g. GitHub Actions runners).\n"
+                    "If tables `translations` and `users` already exist in this region, add to your workflow:\n"
+                    "  env: { SKIP_DYNAMODB_ENSURE: '1' }\n"
+                    "Or deploy from your laptop:  cd backend && python deploy.py\n"
+                )
+            raise
 
     if LAMBDA_ROLE_ARN:
         print("Using existing IAM role from LAMBDA_ROLE_ARN")

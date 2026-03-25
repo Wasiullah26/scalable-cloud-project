@@ -7,6 +7,8 @@
 #   AWS_REGION              — default us-east-1 (secret or Variables)
 #   JWT_SECRET              — Lambda auth (recommended)
 #   LAMBDA_ROLE_ARN         — only if deploy cannot create/use the default role
+# Repository variable SKIP_DYNAMODB_ENSURE — default 1 via workflow (Voclabs often Deny DynamoDB from GitHub IPs).
+#   Set to 0 if CI must create tables (DescribeTable). First-time: run `cd backend && python deploy.py` locally once.
 # Table/API names use deploy.py defaults (translations, users, text-to-languages-api, …).
 
 name: Deploy backend (Lambda)
@@ -82,6 +84,8 @@ jobs:
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           LAMBDA_ROLE_ARN: ${{ secrets.LAMBDA_ROLE_ARN }}
+          # Voclabs: explicit deny on dynamodb:DescribeTable from GitHub — skip table checks if tables already exist.
+          SKIP_DYNAMODB_ENSURE: ${{ vars.SKIP_DYNAMODB_ENSURE || '1' }}
         run: |
           echo "AWS_REGION for this deploy (must match your API URL region, e.g. us-east-1 for ...execute-api.us-east-1...): ${AWS_REGION}"
           python -u deploy.py
