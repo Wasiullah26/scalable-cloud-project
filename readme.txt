@@ -113,5 +113,5 @@ Prerequisites
 ----------------
   backend/      FastAPI app, deploy.py, requirements.txt
   webapp/         React + Vite + TypeScript
-  amplify.yml     Amplify Hosting build (builds webapp/, publishes webapp/dist)
+  amplify.yml     Amplify build (npm --prefix webapp; output webapp/dist)
   .github/        CI workflow (if using GitHub)
