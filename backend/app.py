@@ -1,6 +1,7 @@
 """Translate API: multi-language text, auth, saved notes (DynamoDB)."""
 
 import logging
+import os
 import re
 import uuid
 from typing import Annotated, Any, Dict, List, Optional
@@ -23,12 +24,14 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — browser calls from another host (e.g. Amplify).
-# Do not use allow_credentials=True with allow_origins=["*"] — browsers block that combo.
-# JWT is sent via Authorization header; we do not rely on cross-origin cookies.
+# CORS — single layer in the app (API Gateway CORS is disabled in deploy.py to avoid conflicts).
+# Optional CORS_ORIGINS="https://app.amplifyapp.com,http://localhost:5173" — if unset, allow ["*"].
+# Never use allow_credentials=True with allow_origins=["*"].
+_cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
+_cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
