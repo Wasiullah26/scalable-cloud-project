@@ -26,6 +26,7 @@ import {
 } from './api/services'
 import './App.css'
 import { getErrorMessage } from './utils/errorHandler'
+import { applyLanguageToolFixes } from './utils/applyLanguageToolFixes'
 
 const LANGS: Record<string, string> = {
   es: 'Spanish',
@@ -43,14 +44,6 @@ const LANGS: Record<string, string> = {
   ru: 'Russian',
   tr: 'Turkish',
 }
-
-const SAMPLE_TEXTS = [
-  'Hello world',
-  'Good morning',
-  'Thank you very much',
-  'How are you today?',
-  'Welcome to our application',
-]
 
 const DEFAULT_TARGETS = ['es', 'fr', 'de', 'it', 'pt']
 
@@ -70,6 +63,7 @@ export default function App() {
   const [dirty, setDirty] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [selectionPreview, setSelectionPreview] = useState<TranslateResponse | null>(null)
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null)
   const editorRef = useRef<HTMLTextAreaElement>(null)
   const [translation, setTranslation] = useState<TranslateResponse | null>(null)
   const [targetLangs, setTargetLangs] = useState<string[]>(DEFAULT_TARGETS)
@@ -79,7 +73,6 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [apiStatus, setApiStatus] = useState<string>('')
   const [darkMode, setDarkMode] = useState(false)
-  const [showRaw, setShowRaw] = useState(false)
   const [copiedLang, setCopiedLang] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
@@ -317,6 +310,7 @@ export default function App() {
       setNoteBody((prev) => (prev.trim() ? `${prev.trim()}\n\n${text}` : text))
       setDirty(true)
       setSelectionPreview(null)
+      setSelectionRange(null)
       setFile(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Extraction failed')
@@ -332,6 +326,7 @@ export default function App() {
     setError(null)
     setGrammarResult(null)
     setSelectionPreview(null)
+    setSelectionRange(null)
     try {
       const targets = translateAllLangs ? Object.keys(LANGS) : targetLangs.length ? targetLangs : DEFAULT_TARGETS
       const result = await translateText(text, targets, sourceLang, false)
@@ -359,6 +354,7 @@ export default function App() {
     try {
       const targets = translateAllLangs ? Object.keys(LANGS) : targetLangs.length ? targetLangs : DEFAULT_TARGETS
       const result = await translateText(sel, targets, sourceLang, false)
+      setSelectionRange({ start: a, end: b })
       setSelectionPreview(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Translation failed')
@@ -393,6 +389,44 @@ export default function App() {
     }
   }
 
+  const applyGrammarToNote = () => {
+    if (!grammarResult?.matches.length) return
+    const next = applyLanguageToolFixes(noteBody, grammarResult.matches)
+    setNoteBody(next)
+    setDirty(true)
+    setSaveStatus('idle')
+    setGrammarResult(null)
+  }
+
+  const replaceNoteWithTranslation = (lang: string, translated: string) => {
+    setNoteBody(translated)
+    setSourceLang(lang)
+    setDirty(true)
+    setSaveStatus('idle')
+    setTranslation(null)
+    setGrammarResult(null)
+  }
+
+  const replaceSelectionWithTranslation = (lang: string, translated: string) => {
+    if (!selectionRange) return
+    const a = Math.min(selectionRange.start, selectionRange.end)
+    const b = Math.max(selectionRange.start, selectionRange.end)
+    const next = noteBody.slice(0, a) + translated + noteBody.slice(b)
+    setNoteBody(next)
+    setSourceLang(lang)
+    setDirty(true)
+    setSaveStatus('idle')
+    setSelectionPreview(null)
+    setSelectionRange(null)
+    window.requestAnimationFrame(() => {
+      const el = editorRef.current
+      if (!el) return
+      el.focus()
+      const end = a + translated.length
+      el.setSelectionRange(a, end)
+    })
+  }
+
   const handleNewNote = () => {
     if (dirty && noteBody.trim()) {
       if (!window.confirm('You have unsaved changes. Start a new note anyway?')) return
@@ -402,6 +436,7 @@ export default function App() {
     setTranslation(null)
     setDirty(false)
     setSelectionPreview(null)
+    setSelectionRange(null)
     setGrammarResult(null)
     setFile(null)
     setError(null)
@@ -433,6 +468,7 @@ export default function App() {
       setTranslation(t)
       setDirty(false)
       setSelectionPreview(null)
+      setSelectionRange(null)
       setGrammarResult(null)
       setError(null)
       setPage('translate')
@@ -443,12 +479,11 @@ export default function App() {
   }
 
   const runGrammarCheck = async () => {
-    const text = noteBody.trim()
-    if (!text) return
+    if (!noteBody.trim()) return
     setGrammarLoading(true)
     setError(null)
     try {
-      const result = await checkGrammar(text, 'en-US')
+      const result = await checkGrammar(noteBody, 'en-US')
       setGrammarResult(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Grammar check failed')
@@ -500,6 +535,7 @@ export default function App() {
         setTranslation(null)
         setDirty(false)
         setSelectionPreview(null)
+        setSelectionRange(null)
         setGrammarResult(null)
         setSaveStatus('idle')
       }
@@ -951,18 +987,9 @@ export default function App() {
                   </div>
                   <div className="textarea-meta note-editor-meta">
                     <span>{noteBody.length} characters</span>
-                    <div className="textarea-meta-right">
-                      <div className="chips chips-inline">
-                        {SAMPLE_TEXTS.map((s) => (
-                          <button key={s} type="button" className="chip" onClick={() => { setNoteBody(s); setDirty(true); }}>
-                            {s}
-                          </button>
-                        ))}
-                      </div>
-                      <button type="button" className="link-btn" onClick={() => { setNoteBody(''); setDirty(true); }}>
-                        Clear
-                      </button>
-                    </div>
+                    <button type="button" className="link-btn" onClick={() => { setNoteBody(''); setDirty(true); }}>
+                      Clear
+                    </button>
                   </div>
                 </div>
               </section>
@@ -1024,8 +1051,18 @@ export default function App() {
 
               {grammarResult && grammarResult.matches.length > 0 && (
                 <div className="block grammar-block">
-                  <strong>Grammar</strong>
-                  <ul>
+                  <div className="block-head grammar-block-head">
+                    <strong className="grammar-block-title">Grammar</strong>
+                    <button
+                      type="button"
+                      className="btn-secondary-sm"
+                      onClick={applyGrammarToNote}
+                      disabled={!grammarResult.matches.some((m) => m.replacements && m.replacements.length > 0)}
+                    >
+                      Apply suggestions to note
+                    </button>
+                  </div>
+                  <ul className="grammar-suggestions-list">
                     {grammarResult.matches.map((m, i) => (
                       <li key={i}>{m.message}{m.replacements?.length ? ` → ${m.replacements.slice(0, 2).map((r) => r.value).join(', ')}` : ''}</li>
                     ))}
@@ -1040,13 +1077,45 @@ export default function App() {
                 <div className="block selection-trans-block">
                   <div className="block-head">
                     <h2 className="block-title">Selection translation</h2>
-                    <button type="button" className="link-btn" onClick={() => setSelectionPreview(null)}>Dismiss</button>
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => {
+                        setSelectionPreview(null)
+                        setSelectionRange(null)
+                      }}
+                    >
+                      Dismiss
+                    </button>
                   </div>
-                  <ul className="trans-list">
+                  <p className="selection-trans-hint">Replace the selected text in your note with one of these.</p>
+                  <ul className="trans-list trans-list-stacked">
                     {Object.entries(selectionPreview.translations).map(([lang, text]) => (
                       <li key={lang}>
-                        <strong>{LANGS[lang] ?? lang}</strong>
-                        <span>{text}</span>
+                        <div className="trans-list-item">
+                          <div className="trans-list-top">
+                            <strong>{LANGS[lang] ?? lang}</strong>
+                            <div className="trans-list-item-actions">
+                              <button
+                                type="button"
+                                className="btn-use-translation"
+                                onClick={() => replaceSelectionWithTranslation(lang, text)}
+                                disabled={!selectionRange}
+                              >
+                                Replace selection
+                              </button>
+                              <button
+                                type="button"
+                                className="copy-btn"
+                                onClick={() => copyToClipboard(text, lang)}
+                                title="Copy"
+                              >
+                                {copiedLang === lang ? '✓' : '📋'}
+                              </button>
+                            </div>
+                          </div>
+                          <span className="trans-list-body">{text}</span>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -1067,17 +1136,35 @@ export default function App() {
                     </div>
                   </div>
                   {noteId && <p className="saved-id">Note id · {noteId.slice(0, 8)}…</p>}
-                  <ul className="trans-list">
+                  <ul className="trans-list trans-list-stacked">
                     {Object.entries(translation.translations).map(([lang, text]) => (
                       <li key={lang}>
-                        <strong>{LANGS[lang] ?? lang}</strong>
-                        <span>{text}</span>
-                        <button type="button" className="copy-btn" onClick={() => copyToClipboard(text, lang)} title="Copy">{copiedLang === lang ? '✓' : '📋'}</button>
+                        <div className="trans-list-item">
+                          <div className="trans-list-top">
+                            <strong>{LANGS[lang] ?? lang}</strong>
+                            <div className="trans-list-item-actions">
+                              <button
+                                type="button"
+                                className="btn-use-translation"
+                                onClick={() => replaceNoteWithTranslation(lang, text)}
+                              >
+                                Use as note
+                              </button>
+                              <button
+                                type="button"
+                                className="copy-btn"
+                                onClick={() => copyToClipboard(text, lang)}
+                                title="Copy"
+                              >
+                                {copiedLang === lang ? '✓' : '📋'}
+                              </button>
+                            </div>
+                          </div>
+                          <span className="trans-list-body">{text}</span>
+                        </div>
                       </li>
                     ))}
                   </ul>
-                  <button type="button" className="link-btn" onClick={() => setShowRaw((r) => !r)}>{showRaw ? 'Hide' : 'Show'} JSON</button>
-                  {showRaw && <pre className="raw-json">{JSON.stringify(translation, null, 2)}</pre>}
                 </div>
               )}
             </>

@@ -1217,20 +1217,6 @@
   padding-top: 2px;
 }
 
-.chips-inline {
-  margin: 0;
-}
-
-.textarea-meta-right {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  justify-content: flex-end;
-  flex: 1;
-  min-width: 0;
-}
-
 .sidebar-saved-header {
   display: flex;
   align-items: center;
@@ -1568,29 +1554,6 @@
   color: #6ee7b7;
 }
 
-/* Chips */
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 12px 0 16px;
-}
-
-.chip {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  padding: 6px 12px;
-  font-size: 0.8rem;
-  cursor: pointer;
-  color: var(--text);
-}
-
-.chip:hover {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
 /* Lang options */
 .lang-options {
   margin-bottom: 16px;
@@ -1695,6 +1658,92 @@
   color: var(--text);
 }
 
+.trans-list-stacked li {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.trans-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.trans-list-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.trans-list-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.trans-list-body {
+  display: block;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  word-break: break-word;
+  color: var(--text);
+}
+
+.btn-use-translation {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-use-translation:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.btn-use-translation:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.grammar-block-head {
+  margin-bottom: 10px;
+  align-items: center;
+}
+
+.grammar-block-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.grammar-suggestions-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.9rem;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.grammar-suggestions-list li {
+  margin-bottom: 6px;
+}
+
+.selection-trans-hint {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
 .copy-btn {
   flex-shrink: 0;
   background: var(--bg-secondary);
@@ -1707,19 +1756,6 @@
 
 .copy-btn:hover {
   border-color: var(--accent);
-}
-
-.raw-json {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 12px;
-  font-size: 0.75rem;
-  overflow-x: auto;
-  margin-top: 8px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--text-secondary);
 }
 
 /* Saved list */
