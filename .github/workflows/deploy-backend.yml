@@ -71,6 +71,12 @@ jobs:
         working-directory: backend
         run: python -c "import boto3; print(boto3.client('sts').get_caller_identity())"
 
+      # Same commit as checkout — proves CI deploys the code you see on GitHub (not stale local-only edits).
+      - name: Deploy fingerprint
+        run: |
+          echo "commit=$(git rev-parse HEAD)"
+          sha256sum backend/app.py backend/deploy.py
+
       - name: Deploy Lambda + API Gateway
         working-directory: backend
         env:

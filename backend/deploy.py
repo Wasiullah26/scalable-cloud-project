@@ -44,6 +44,16 @@ USERS_TABLE_NAME = _env_str("USERS_TABLE", "users")
 
 ZIP_PATH = BACKEND_DIR / "lambda_deploy.zip"
 
+# HTTP API CORS — must not use AllowCredentials with AllowOrigins * (browser blocks).
+# Kept in sync on every deploy so CI and local CLI produce the same API behavior.
+HTTP_API_CORS = {
+    "AllowOrigins": ["*"],
+    "AllowMethods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    "AllowHeaders": ["*"],
+    "ExposeHeaders": ["*"],
+    "MaxAge": 86400,
+}
+
 
 def build_zip():
     import tempfile
@@ -269,14 +279,17 @@ def create_api_and_routes(apigw, lambda_client, function_arn, account_id):
         api = apigw.create_api(
             Name=API_NAME,
             ProtocolType="HTTP",
-            CorsConfiguration={
-                "AllowOrigins": ["*"],
-                "AllowMethods": ["*"],
-                "AllowHeaders": ["*"],
-            },
+            CorsConfiguration=HTTP_API_CORS,
         )
         api_id = api["ApiId"]
         print(f"Created API: {API_NAME} ({api_id})")
+    else:
+        # Existing API: re-apply CORS so CI deploy matches local CLI (avoids stale GW-only CORS).
+        try:
+            apigw.update_api(ApiId=api_id, CorsConfiguration=HTTP_API_CORS)
+            print("Updated API Gateway CORS (aligned with Lambda / FastAPI).")
+        except ClientError as e:
+            print(f"Warning: could not update API CORS: {e}")
 
     integration_id = None
     try:
