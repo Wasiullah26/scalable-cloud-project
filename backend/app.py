@@ -23,11 +23,21 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — browser calls from another host (e.g. Amplify).
+# CORS — browser calls from Amplify / local dev.
+# Runtime evidence (debug session): Amplify origin + ACAO:* still yielded "Failed to fetch" / CORS error;
+# reflecting the request Origin via regex fixes strict browsers and preflight for JSON POSTs.
 # JWT is sent via Authorization header; we do not rely on cross-origin cookies.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://main.d25pgvgew92bxj.amplifyapp.com",
+        "https://staging.d25pgvgew92bxj.amplifyapp.com",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+    ],
+    # Other Amplify preview URLs (e.g. pr-123....amplifyapp.com) still match here:
+    allow_origin_regex=r"https://[\w.-]+\.amplifyapp\.com",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
