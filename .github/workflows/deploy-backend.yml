@@ -82,4 +82,6 @@ jobs:
         env:
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           LAMBDA_ROLE_ARN: ${{ secrets.LAMBDA_ROLE_ARN }}
-        run: python -u deploy.py
+        run: |
+          echo "AWS_REGION for this deploy (must match your API URL region, e.g. us-east-1 for ...execute-api.us-east-1...): ${AWS_REGION}"
+          python -u deploy.py

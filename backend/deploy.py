@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -68,6 +70,39 @@ TRANSLATIONS_TABLE_NAME = _env_str("TRANSLATIONS_TABLE", "translations")
 USERS_TABLE_NAME = _env_str("USERS_TABLE", "users")
 
 ZIP_PATH = BACKEND_DIR / "lambda_deploy.zip"
+
+
+def _smoke_test_health(base_url: str, *, attempts: int = 4, delay_s: float = 3.0) -> None:
+    """GET /health on the deployed API. Surfaces 500s that browsers report as CORS errors."""
+    url = base_url.rstrip("/") + "/health"
+    last_err: Optional[str] = None
+    for i in range(attempts):
+        try:
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=25) as resp:
+                body = resp.read().decode("utf-8", errors="replace")
+                if resp.status == 200:
+                    print(f"Health check OK (HTTP {resp.status}): {body[:180]}")
+                    return
+                last_err = f"HTTP {resp.status}: {body[:300]}"
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", errors="replace") if e.fp else ""
+            last_err = f"HTTP {e.code}: {raw[:300]}"
+        except Exception as e:
+            last_err = str(e)
+        if i < attempts - 1:
+            time.sleep(delay_s)
+    print(
+        "WARNING: Post-deploy health check failed after retries. "
+        "Browsers often show this as a CORS error, but the API is returning an error. "
+        f"Last error: {last_err}"
+    )
+    print(
+        "Hint: Ensure GitHub Actions AWS_REGION matches the region in your API URL "
+        f"(this deploy used REGION={REGION}). If the region is wrong, CI updates a "
+        "Lambda in another region while Amplify still points at the old API."
+    )
+
 
 def build_zip():
     import tempfile
@@ -426,6 +461,7 @@ def main():
     )
     # endregion
 
+    print(f"=== Deploy region: {REGION} (must match the region in your execute-api URL, e.g. ...execute-api.us-east-1...) ===")
     session = boto3.Session(region_name=REGION)
     account_id = session.client("sts").get_caller_identity()["Account"]
     iam = session.client("iam")
@@ -460,11 +496,14 @@ def main():
 
     base_url = f"https://{api_id}.execute-api.{REGION}.amazonaws.com"
     print("\n--- Deployment complete ---")
+    print(f"API ID: {api_id}  (subdomain in your Amplify VITE_TRANSLATE_API_URL must match)")
     print(f"API URL: {base_url}")
     print(f"  Health:  GET  {base_url}/health")
     print(f"  Translate: POST {base_url}/translate")
     print(f"  Docs:    {base_url}/docs")
     print("\nShare the API URL above with classmates for the assignment.")
+    print("")
+    _smoke_test_health(base_url)
 
 
 if __name__ == "__main__":
