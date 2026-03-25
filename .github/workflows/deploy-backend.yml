@@ -4,12 +4,13 @@
 #   AWS_ACCESS_KEY_ID
 #   AWS_SECRET_ACCESS_KEY
 # Optional (same as backend/.env):
-#   AWS_SESSION_TOKEN       — if using temporary credentials (e.g. Learner Lab)
+#   AWS_SESSION_TOKEN       — only for temporary/STS credentials; if you use long-lived IAM keys,
+#                             delete this secret entirely (do not leave an empty secret).
 #   AWS_REGION              — optional; default us-east-1 (secret or Variables tab)
 #   JWT_SECRET              — passed to Lambda for auth
 #   LAMBDA_ROLE_ARN         — if you cannot create IAM roles in CI
 #
-# Without these secrets the job will fail at the AWS login step — that is expected until you add them.
+# Without AWS secrets the job will fail — that is expected until you add them.
 
 name: Deploy backend (Lambda)
 
@@ -27,18 +28,28 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
 
-      # Omit AWS_SESSION_TOKEN in repo secrets if you use long-lived IAM user keys.
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region: ${{ secrets.AWS_REGION || vars.AWS_REGION || 'us-east-1' }}
+      # boto3 reads AWS_* from the environment. We only set AWS_SESSION_TOKEN when the secret
+      # is non-empty — passing an empty session token to the AWS CLI/SDK often fails validation.
+      - name: Configure AWS credentials for boto3
+        env:
+          AWS_REGION_VALUE: ${{ secrets.AWS_REGION || vars.AWS_REGION || 'us-east-1' }}
+        run: |
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> "$GITHUB_ENV"
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> "$GITHUB_ENV"
+          echo "AWS_REGION=${AWS_REGION_VALUE}" >> "$GITHUB_ENV"
+          echo "AWS_DEFAULT_REGION=${AWS_REGION_VALUE}" >> "$GITHUB_ENV"
+          ST="${{ secrets.AWS_SESSION_TOKEN }}"
+          if [ -n "$ST" ]; then echo "AWS_SESSION_TOKEN=$ST" >> "$GITHUB_ENV"; fi
+
+      - name: Verify AWS credentials
+        run: aws sts get-caller-identity
 
       - uses: actions/setup-python@v5
         with:
@@ -59,4 +70,4 @@ jobs:
           API_NAME: ${{ secrets.API_NAME }}
           TRANSLATIONS_TABLE: ${{ secrets.TRANSLATIONS_TABLE }}
           USERS_TABLE: ${{ secrets.USERS_TABLE }}
-        run: python deploy.py
+        run: python -u deploy.py
