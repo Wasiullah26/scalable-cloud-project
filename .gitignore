@@ -1,0 +1,19 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+.env
+backend/.env
+backend/lambda_deploy.zip
+
+# Node / front-end
+webapp/node_modules/
+webapp/dist/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
