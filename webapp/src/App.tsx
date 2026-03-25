@@ -76,7 +76,12 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
   const [copiedLang, setCopiedLang] = useState<string | null>(null)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+  )
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
+  )
 
   const [grammarResult, setGrammarResult] = useState<LanguageToolResponse | null>(null)
   const [grammarLoading, setGrammarLoading] = useState(false)
@@ -128,6 +133,23 @@ export default function App() {
       setAuthLoading(false)
     }).catch(() => setAuthLoading(false))
   }, [])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 768px)')
+    const sync = () => {
+      const mobile = mq.matches
+      setIsMobile(mobile)
+      if (mobile) setSidebarCollapsed(true)
+      else setSidebarCollapsed(false)
+    }
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
+
+  const closeMobileSidebar = useCallback(() => {
+    if (isMobile) setSidebarCollapsed(true)
+  }, [isMobile])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -218,6 +240,7 @@ export default function App() {
   }, [darkMode])
 
   useEffect(() => {
+    if (!import.meta.env.DEV) return
     Promise.all([healthCheck(), getDefaultLanguages()])
       .then(([, langs]) => {
         setApiStatus(`API OK · ${langs.default_targets.join(', ')}`)
@@ -330,6 +353,7 @@ export default function App() {
       setExtractedText(t.original_text)
       setStep('translated')
       setPage('translate')
+      closeMobileSidebar()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
     }
@@ -571,6 +595,14 @@ export default function App() {
 
   return (
     <div className="notion-app">
+      {isMobile && !sidebarCollapsed && (
+        <button
+          type="button"
+          className="sidebar-backdrop"
+          onClick={() => setSidebarCollapsed(true)}
+          aria-label="Close menu"
+        />
+      )}
       <aside className={`sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="sidebar-header">
           <div className="sidebar-brand">
@@ -597,7 +629,11 @@ export default function App() {
               key={item.id}
               type="button"
               className={`nav-item ${page === item.id ? 'active' : ''}`}
-              onClick={() => { setPage(item.id); setError(null); }}
+              onClick={() => {
+                setPage(item.id)
+                setError(null)
+                closeMobileSidebar()
+              }}
             >
               <span className="nav-icon">{item.icon}</span>
               {!sidebarCollapsed && <span className="nav-label">{item.label}</span>}
@@ -647,7 +683,9 @@ export default function App() {
                 </button>
               </div>
             )}
-            <span className="api-status">{apiStatus}</span>
+            {import.meta.env.DEV && apiStatus && (
+              <span className="api-status">{apiStatus}</span>
+            )}
           </div>
         )}
       </aside>
@@ -655,11 +693,23 @@ export default function App() {
       <div className="notion-main">
         <header className="topbar">
           <div className="topbar-left">
-            <h1 className="topbar-title">
-              {page === 'translate' && 'Translate'}
-              {page === 'dictionary' && 'Dictionary'}
-            </h1>
-            <p className="topbar-sub">Private page · {user?.email ?? ''}</p>
+            {isMobile && (
+              <button
+                type="button"
+                className="topbar-menu-btn"
+                onClick={() => setSidebarCollapsed((c) => !c)}
+                aria-label={sidebarCollapsed ? 'Open menu' : 'Close menu'}
+              >
+                {sidebarCollapsed ? '☰' : '✕'}
+              </button>
+            )}
+            <div className="topbar-titles">
+              <h1 className="topbar-title">
+                {page === 'translate' && 'Translate'}
+                {page === 'dictionary' && 'Dictionary'}
+              </h1>
+              <p className="topbar-sub">Private page · {user?.email ?? ''}</p>
+            </div>
           </div>
           <div className="topbar-actions">
             <button
