@@ -26,7 +26,7 @@ app = FastAPI(
 
 # CORS — single layer in the app (API Gateway CORS is disabled in deploy.py to avoid conflicts).
 # Optional CORS_ORIGINS="https://app.amplifyapp.com,http://localhost:5173" — if unset, allow ["*"].
-# Never use allow_credentials=True with allow_origins=["*"].
+
 _cors_raw = os.environ.get("CORS_ORIGINS", "").strip()
 _cors_origins = [o.strip() for o in _cors_raw.split(",") if o.strip()] if _cors_raw else ["*"]
 app.add_middleware(
