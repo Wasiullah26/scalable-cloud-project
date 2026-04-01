@@ -27,19 +27,6 @@ def delete(id: str) -> None:
     _get_table().delete_item(Key={"id": id})
 
 
-def list_all() -> List[Dict[str, Any]]:
-    try:
-        tbl = _get_table()
-        r = tbl.scan()
-        items = list(r.get("Items", []))
-        while "LastEvaluatedKey" in r:
-            r = tbl.scan(ExclusiveStartKey=r["LastEvaluatedKey"])
-            items.extend(r.get("Items", []))
-        return items
-    except Exception:
-        return []
-
-
 def list_by_user(user_id: str) -> List[Dict[str, Any]]:
     try:
         from boto3.dynamodb.conditions import Attr

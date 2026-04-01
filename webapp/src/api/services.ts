@@ -152,6 +152,25 @@ export interface ImageToTextResponse {
   language?: string
 }
 
+/** Shown when the OCR API refuses extraction (e.g. suspected PII) — do not surface raw API categories to users. */
+const OCR_BLOCKED_FRIENDLY =
+  "We couldn’t extract text from this image. The service may block content that looks like personal details, IDs, or credentials. Try a plain photo of printed text, or an image without documents or account screens."
+
+function ocrErrorMessage(
+  status: number,
+  body: { error?: string; message?: string; reason?: string; categories?: string[] }
+): string {
+  const msg = typeof body.message === 'string' ? body.message.toLowerCase() : ''
+  const sensitiveBlock =
+    status === 400 &&
+    (msg.includes('cannot be displayed') ||
+      (Array.isArray(body.categories) && body.categories.length > 0))
+  if (sensitiveBlock) return OCR_BLOCKED_FRIENDLY
+  const detail =
+    [body.message, body.reason].filter(Boolean).join(' — ') || body.error || `Image-to-text failed (${status})`
+  return detail
+}
+
 // POST /ocr; if only jobId comes back, GET /ocr/:jobId
 export async function imageToText(file: File, language = 'eng'): Promise<string> {
   if (!IMAGE_TO_TEXT_BASE) throw new Error('Image-to-Text API URL not configured. Set VITE_IMAGE_TO_TEXT_API_URL in .env')
@@ -163,7 +182,10 @@ export async function imageToText(file: File, language = 'eng'): Promise<string>
     body: form,
   })
   const data: ImageToTextResponse & { result?: string; data?: { text?: string; confidence?: number | null } } = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((data as { error?: string }).error || 'Image-to-text failed')
+  if (!res.ok) {
+    const err = data as { error?: string; message?: string; reason?: string; categories?: string[] }
+    throw new Error(ocrErrorMessage(res.status, err))
+  }
 
   let text = data.text ?? data.data?.text ?? ''
   const jobId = data.jobId
@@ -171,7 +193,10 @@ export async function imageToText(file: File, language = 'eng'): Promise<string>
   if (!text.trim() && jobId) {
     const getRes = await fetch(`${IMAGE_TO_TEXT_BASE}/ocr/${encodeURIComponent(jobId)}`, { method: 'GET' })
     const fetched = await getRes.json().catch(() => ({})) as ImageToTextResponse & { data?: { text?: string } }
-    if (!getRes.ok) throw new Error((fetched as { error?: string }).error || 'Could not fetch OCR result')
+    if (!getRes.ok) {
+      const err = fetched as { error?: string; message?: string; reason?: string; categories?: string[] }
+      throw new Error(ocrErrorMessage(getRes.status, err))
+    }
     text = fetched.text ?? fetched.data?.text ?? ''
   }
 
@@ -253,62 +278,20 @@ function apiErrorMessage(data: unknown, fallback: string): string {
   return fallback
 }
 
-// #region agent log
-function _agentLog(message: string, hypothesisId: string, data: Record<string, unknown>): void {
-  fetch('http://127.0.0.1:7694/ingest/789aa41a-ea81-4a4c-bb6e-205a27bc4c88', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'c35cb3' },
-    body: JSON.stringify({
-      sessionId: 'c35cb3',
-      location: 'services.ts:login',
-      message,
-      hypothesisId,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-}
-// #endregion
-
 export async function login(email: string, password: string): Promise<{ token: string; user: AuthUser }> {
   const url = `${TRANSLATE_BASE}/auth/login`
-  // #region agent log
-  _agentLog('login_attempt', 'H3', {
-    translateBase: TRANSLATE_BASE,
-    url,
-    origin: typeof window !== 'undefined' ? window.location.origin : 'ssr',
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
   })
-  // #endregion
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    })
-    // #region agent log
-    _agentLog('login_response', 'H3', {
-      ok: res.ok,
-      status: res.status,
-      acao: res.headers.get('access-control-allow-origin'),
-      acac: res.headers.get('access-control-allow-credentials'),
-    })
-    // #endregion
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      throw new Error(apiErrorMessage(data, 'Login failed'))
-    }
-    const data = await res.json()
-    if (typeof localStorage !== 'undefined' && data.token) localStorage.setItem(AUTH_TOKEN_KEY, data.token)
-    return data
-  } catch (e) {
-    // #region agent log
-    _agentLog('login_fetch_error', 'H3', {
-      name: e instanceof Error ? e.name : 'unknown',
-      message: e instanceof Error ? e.message : String(e),
-    })
-    // #endregion
-    throw e
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(apiErrorMessage(data, 'Login failed'))
   }
+  const data = await res.json()
+  if (typeof localStorage !== 'undefined' && data.token) localStorage.setItem(AUTH_TOKEN_KEY, data.token)
+  return data
 }
 
 export async function signup(email: string, name: string, password: string): Promise<{ message: string }> {

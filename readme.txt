@@ -84,8 +84,10 @@ Prerequisites
        VITE_IMAGE_TO_TEXT_API_URL = classmate OCR base (e.g. .../prod) if needed
   e) Save and deploy. Open the Amplify URL when the build finishes.
 
-  CORS: the API already allows all origins in app.py. For cookies/localStorage
-  the app runs in the browser from your Amplify domain; JWT is fine over HTTPS.
+  CORS: app.py allows specific Amplify URLs, localhost for dev, and a regex for
+  *.amplifyapp.com preview branches. JWT is sent via Authorization header (not
+  cookies). If your Amplify URL is different, add it to allow_origins in backend/app.py
+  and redeploy (python deploy.py).
 
   Alternatives (same idea: upload webapp/dist or connect repo):
   - Netlify / Vercel: set the same VITE_* variables in the project settings.

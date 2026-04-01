@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   translateText,
   imageToText,
-  getDefaultLanguages,
-  healthCheck,
   checkGrammar,
   lookupWord,
   listTranslations,
@@ -69,9 +67,13 @@ export default function App() {
   const [targetLangs, setTargetLangs] = useState<string[]>(DEFAULT_TARGETS)
   const [sourceLang, setSourceLang] = useState('en')
   const [translateAllLangs, setTranslateAllLangs] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [ocrLoading, setOcrLoading] = useState(false)
+  const [translateNoteLoading, setTranslateNoteLoading] = useState(false)
+  const [translateSelectionLoading, setTranslateSelectionLoading] = useState(false)
+  const [saveNoteLoading, setSaveNoteLoading] = useState(false)
+  const [updateTranslationLoading, setUpdateTranslationLoading] = useState(false)
+  const [hasEditorSelection, setHasEditorSelection] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [apiStatus, setApiStatus] = useState<string>('')
   const [darkMode, setDarkMode] = useState(false)
   const [copiedLang, setCopiedLang] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(
@@ -237,15 +239,6 @@ export default function App() {
     document.documentElement.classList.toggle('dark', darkMode)
   }, [darkMode])
 
-  useEffect(() => {
-    if (!import.meta.env.DEV) return
-    Promise.all([healthCheck(), getDefaultLanguages()])
-      .then(([, langs]) => {
-        setApiStatus(`API OK · ${langs.default_targets.join(', ')}`)
-      })
-      .catch(() => setApiStatus('Unreachable'))
-  }, [])
-
   const loadSavedList = useCallback(async () => {
     setSavedListLoading(true)
     try {
@@ -295,6 +288,28 @@ export default function App() {
     el.style.height = `${h}px`
   }, [noteBody, noteId])
 
+  const syncEditorSelection = useCallback(() => {
+    const el = editorRef.current
+    if (!el) {
+      setHasEditorSelection(false)
+      return
+    }
+    const a = el.selectionStart
+    const b = el.selectionEnd
+    if (a === b) {
+      setHasEditorSelection(false)
+      return
+    }
+    const lo = Math.min(a, b)
+    const hi = Math.max(a, b)
+    const sel = noteBody.slice(lo, hi)
+    setHasEditorSelection(sel.trim().length > 0)
+  }, [noteBody])
+
+  useEffect(() => {
+    syncEditorSelection()
+  }, [noteBody, syncEditorSelection])
+
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0]
     if (f) setFile(f)
@@ -303,7 +318,7 @@ export default function App() {
 
   const extractText = async () => {
     if (!file) return
-    setLoading(true)
+    setOcrLoading(true)
     setError(null)
     try {
       const text = await imageToText(file)
@@ -315,14 +330,14 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Extraction failed')
     } finally {
-      setLoading(false)
+      setOcrLoading(false)
     }
   }
 
   const runTranslate = async () => {
     const text = noteBody.trim()
     if (!text) return
-    setLoading(true)
+    setTranslateNoteLoading(true)
     setError(null)
     setGrammarResult(null)
     setSelectionPreview(null)
@@ -334,7 +349,7 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Translation failed')
     } finally {
-      setLoading(false)
+      setTranslateNoteLoading(false)
     }
   }
 
@@ -349,7 +364,7 @@ export default function App() {
     }
     const sel = noteBody.slice(a, b)
     if (!sel.trim()) return
-    setLoading(true)
+    setTranslateSelectionLoading(true)
     setError(null)
     try {
       const targets = translateAllLangs ? Object.keys(LANGS) : targetLangs.length ? targetLangs : DEFAULT_TARGETS
@@ -359,7 +374,7 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Translation failed')
     } finally {
-      setLoading(false)
+      setTranslateSelectionLoading(false)
     }
   }
 
@@ -368,7 +383,7 @@ export default function App() {
       setError('Add some text before saving.')
       return
     }
-    setLoading(true)
+    setSaveNoteLoading(true)
     setError(null)
     try {
       if (!noteId) {
@@ -385,7 +400,7 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
     } finally {
-      setLoading(false)
+      setSaveNoteLoading(false)
     }
   }
 
@@ -512,7 +527,7 @@ export default function App() {
     if (!noteId) return
     const text = noteBody.trim()
     if (!text) return
-    setLoading(true)
+    setUpdateTranslationLoading(true)
     setError(null)
     try {
       const targets = translateAllLangs ? Object.keys(LANGS) : targetLangs.length ? targetLangs : DEFAULT_TARGETS
@@ -522,7 +537,7 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Update failed')
     } finally {
-      setLoading(false)
+      setUpdateTranslationLoading(false)
     }
   }
 
@@ -839,9 +854,6 @@ export default function App() {
                 </button>
               </div>
             )}
-            {import.meta.env.DEV && apiStatus && (
-              <span className="api-status">{apiStatus}</span>
-            )}
           </div>
         )}
       </aside>
@@ -933,16 +945,20 @@ export default function App() {
               <section className="note-page" aria-label="Notes workspace">
                 <div className="note-import-strip">
                   <span className="note-import-label">Import</span>
-                  <div className="note-import-controls">
+                  <div className="note-import-row">
                     <label className="note-file-label">
                       <span className="note-file-btn">Choose image</span>
                       <input type="file" accept="image/*" onChange={onFileChange} className="note-file-input" title="Images only (no PDF)" />
                     </label>
                     {file && <span className="file-name">{file.name}</span>}
-                    <button type="button" onClick={extractText} disabled={!file || loading} className="btn-primary btn-compact">
-                      {loading ? 'Extracting…' : 'Add text from image'}
-                    </button>
                   </div>
+                  {file && (
+                    <div className="note-import-extract-row">
+                      <button type="button" onClick={extractText} disabled={ocrLoading} className="btn-primary btn-compact">
+                        {ocrLoading ? 'Extracting…' : 'Add text from image'}
+                      </button>
+                    </div>
+                  )}
                   <p className="note-import-hint">OCR adds text into your note below. Open a saved note from the sidebar anytime.</p>
                 </div>
 
@@ -955,6 +971,9 @@ export default function App() {
                       setDirty(true)
                       setSaveStatus('idle')
                     }}
+                    onSelect={syncEditorSelection}
+                    onMouseUp={syncEditorSelection}
+                    onKeyUp={syncEditorSelection}
                     placeholder="Start writing…"
                     className="notion-canvas note-editor"
                     spellCheck
@@ -975,8 +994,21 @@ export default function App() {
                       )}
                     </div>
                     <div className="note-save-row-actions">
-                      <button type="button" className="btn-save-note-primary" onClick={handleSaveNote} disabled={loading || !noteBody.trim()}>
-                        {loading ? '…' : noteId ? 'Save now' : 'Save note'}
+                      <button type="button" className="btn-save-note-primary" onClick={handleSaveNote} disabled={saveNoteLoading || !noteBody.trim()}>
+                        {saveNoteLoading ? '…' : noteId ? 'Save now' : 'Save note'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-clear-note"
+                        onClick={() => {
+                          setNoteBody('')
+                          setDirty(true)
+                          setSaveStatus('idle')
+                          syncEditorSelection()
+                        }}
+                        disabled={!noteBody.trim()}
+                      >
+                        Clear
                       </button>
                       {noteId && (
                         <button type="button" className="btn-danger-outline" onClick={() => handleDeleteSaved(noteId)}>
@@ -987,9 +1019,6 @@ export default function App() {
                   </div>
                   <div className="textarea-meta note-editor-meta">
                     <span>{noteBody.length} characters</span>
-                    <button type="button" className="link-btn" onClick={() => { setNoteBody(''); setDirty(true); }}>
-                      Clear
-                    </button>
                   </div>
                 </div>
               </section>
@@ -1031,17 +1060,17 @@ export default function App() {
                   )}
                 </div>
                 <div className="note-toolbar-actions">
-                  <button type="button" className="btn-primary" onClick={runTranslate} disabled={loading || !noteBody.trim()}>
-                    {loading ? 'Translating…' : 'Translate whole note'}
+                  <button type="button" className="btn-primary" onClick={runTranslate} disabled={translateNoteLoading || !noteBody.trim()}>
+                    {translateNoteLoading ? 'Translating…' : 'Translate whole note'}
                   </button>
                   <button
                     type="button"
                     className="btn-secondary"
                     onClick={runTranslateSelection}
-                    disabled={loading || !noteBody.trim()}
-                    title="Select text in the note first"
+                    disabled={translateSelectionLoading || !noteBody.trim() || !hasEditorSelection}
+                    title={hasEditorSelection ? 'Translate the highlighted text' : 'Select text in the note first'}
                   >
-                    Translate selection
+                    {translateSelectionLoading ? 'Translating…' : 'Translate selection'}
                   </button>
                   <button type="button" className="btn-secondary" onClick={runGrammarCheck} disabled={grammarLoading || !noteBody.trim()}>
                     {grammarLoading ? 'Checking…' : 'Check grammar'}
@@ -1128,8 +1157,8 @@ export default function App() {
                     <h2 className="block-title">Whole-note translation</h2>
                     <div className="block-buttons">
                       {noteId && (
-                        <button type="button" className="btn-secondary-sm" onClick={handleUpdateSaved} disabled={loading}>
-                          Retranslate &amp; update
+                        <button type="button" className="btn-secondary-sm" onClick={handleUpdateSaved} disabled={updateTranslationLoading}>
+                          {updateTranslationLoading ? 'Updating…' : 'Retranslate & update'}
                         </button>
                       )}
                       <button type="button" className="btn-secondary-sm" onClick={copyAllTranslations}>{copiedLang === 'all' ? 'Copied' : 'Copy all'}</button>

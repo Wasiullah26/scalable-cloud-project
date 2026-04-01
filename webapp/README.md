@@ -6,7 +6,7 @@ React app for the Scalable Cloud assignment. It uses:
 2. **Classmate's API** – Image to text / OCR (POST /ocr with image)
 3. **Public API** – Language Tool (grammar/spell check)
 4. **Public API** – Free Dictionary API (definitions, examples)
-5. **Public API** – Firebase Auth (optional: Sign in with Google)
+5. **Our API** – Email/password auth (JWT via `/auth/signup`, `/auth/login`, `/auth/verify`)
 
 ## Setup
 
@@ -39,9 +39,8 @@ Output is in `dist/`. Deploy that folder to GitHub Pages, Netlify, Vercel, or S3
 |----------|-------------|
 | `VITE_TRANSLATE_API_URL` | Our API base URL (default: Lambda URL) |
 | `VITE_IMAGE_TO_TEXT_API_URL` | Classmate's Image-to-Text API base URL (default in code) |
-| `VITE_FIREBASE_*` | Optional. Firebase project config for "Sign in with Google" (see .env.example) |
 
-If Firebase env vars are not set, the app works without login. If set, a "Sign in with Google" button appears in the sidebar.
+Auth is optional: you can use translate features without logging in; saved notes and account features use JWT from our API.
 
 ---
 

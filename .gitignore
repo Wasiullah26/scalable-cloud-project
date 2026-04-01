@@ -15,5 +15,13 @@ webapp/dist/
 .idea/
 .vscode/
 
+.pptx_deps/
+
 # Logs
 *.log
+
+# PowerPoint (keep local; do not push)
+*.pptx
+
+# Local assignment notes (not tracked; delete this line if you want docs/ in the repo)
+docs/

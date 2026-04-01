@@ -1010,11 +1010,15 @@
   margin-bottom: 12px;
 }
 
-.note-import-controls {
+.note-import-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 14px;
+}
+
+.note-import-extract-row {
+  margin-top: 10px;
 }
 
 .note-import-hint {
@@ -1349,6 +1353,28 @@
 }
 .btn-save-note-primary:disabled {
   opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.btn-clear-note {
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-clear-note:hover:not(:disabled) {
+  background: var(--bg-secondary);
+  color: var(--text);
+}
+
+.btn-clear-note:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
