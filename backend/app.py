@@ -165,9 +165,9 @@ async def auth_signup(req: SignupRequest):
 async def auth_login(req: LoginRequest):
     user = get_user_by_email(req.email.strip().lower())
     if not user:
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="No account found for this email address.")
     if not check_password(user, req.password):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="Incorrect password.")
     token = generate_token(user["user_id"])
     return {
         "token": token,

@@ -1,8 +1,10 @@
 const KNOWN_MESSAGES: { test: RegExp | string; message: string }[] = [
+  { test: /incorrect password/i, message: 'Incorrect password.' },
+  { test: /no account found for this email/i, message: 'No account for this email. Check the address or sign up.' },
   { test: /invalid (email|username) or password/i, message: 'Invalid email or password.' },
   { test: /invalid credentials/i, message: 'Invalid email or password.' },
   { test: /email already registered/i, message: 'Email already registered. Please use a different email or try signing in.' },
-  { test: /user not found/i, message: 'No account found with this email. Please sign up to create one.' },
+  { test: /user not found/i, message: 'No account for this email. Check the address or sign up.' },
 ]
 
 function normalizeRaw(raw: string): string {

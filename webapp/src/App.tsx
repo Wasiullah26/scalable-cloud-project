@@ -171,19 +171,16 @@ export default function App() {
       setLoginEmail('')
       setLoginPassword('')
     } catch (err) {
-      const raw = err instanceof Error ? err.message : ''
       const msg = getErrorMessage(err)
-      const isInvalidCredentials =
-        /invalid (email|username) or password/i.test(raw) ||
-        /invalid credentials/i.test(raw) ||
-        (raw.toLowerCase().includes('invalid') && raw.toLowerCase().includes('password'))
-      if (isInvalidCredentials) {
-        setAuthTab('signup')
-        setSignupEmail(loginEmail.trim().toLowerCase())
-        setSignupPassword('')
-        setSignupName('')
-        setAuthError('No account found with this email. Please sign up to create an account.')
+      const lower = msg.toLowerCase()
+      if (lower.includes('incorrect password')) {
+        setAuthError(null)
+        setAuthFieldErrors({ password: 'Incorrect password.' })
+      } else if (lower.includes('no account')) {
+        setAuthError(null)
+        setAuthFieldErrors({ email: 'No account for this email. Check the address or sign up.' })
       } else {
+        setAuthFieldErrors({})
         setAuthError(msg)
       }
     } finally {
