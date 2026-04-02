@@ -1,5 +1,3 @@
-"""Translate API: multi-language text, auth, saved notes (DynamoDB)."""
-
 import logging
 import re
 import uuid
@@ -23,21 +21,10 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS — browser calls from Amplify / local dev.
-# Runtime evidence (debug session): Amplify origin + ACAO:* still yielded "Failed to fetch" / CORS error;
-# reflecting the request Origin via regex fixes strict browsers and preflight for JSON POSTs.
-# JWT is sent via Authorization header; we do not rely on cross-origin cookies.
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://main.d25pgvgew92bxj.amplifyapp.com",
-        "https://staging.d25pgvgew92bxj.amplifyapp.com",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-    ],
-    # Other Amplify preview URLs (e.g. pr-123....amplifyapp.com) still match here:
-    allow_origin_regex=r"https://[\w.-]+\.amplifyapp\.com",
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -51,7 +38,10 @@ class TranslateRequest(BaseModel):
         default=None,
         description="Target language codes (e.g. ['es','fr']). Default: es, fr, de, it, pt",
     )
-    save: bool = Field(default=False, description="If True, store after translate. Default False: translate only; use POST /translations to save.")
+    save: bool = Field(
+        default=False,
+        description="If True, requires Authorization Bearer JWT and stores the note. If False, no auth required.",
+    )
 
 
 class TranslateResponse(BaseModel):
@@ -82,8 +72,6 @@ class SaveNoteRequest(BaseModel):
 
 
 class NotePatchRequest(BaseModel):
-    """Update note body (and optionally translations) without re-calling the translation API."""
-
     original_text: str = Field(default="")
     source_lang: str = Field(default="en")
     translations: Optional[Dict[str, str]] = None
@@ -92,6 +80,21 @@ class NotePatchRequest(BaseModel):
 async def get_current_user_id(authorization: Optional[str] = Header(None)) -> str:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Authentication required")
+    token = authorization.replace("Bearer ", "").strip()
+    try:
+        uid = get_user_id_from_token(token)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    if not uid:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    if not get_user(uid):
+        raise HTTPException(status_code=401, detail="User not found")
+    return uid
+
+
+async def get_optional_user_id(authorization: Optional[str] = Header(None)) -> Optional[str]:
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
     token = authorization.replace("Bearer ", "").strip()
     try:
         uid = get_user_id_from_token(token)
@@ -197,7 +200,7 @@ async def auth_verify(authorization: Optional[str] = Header(None)):
 
 @app.get("/")
 async def root():
-    return {"service": "text-to-languages-api", "docs": "/docs", "health": "/health"}
+    return {"service": "text-to-languages-api", "docs": "/docs", "health": "/health", "translate": "/translate"}
 
 
 @app.get("/health")
@@ -236,9 +239,11 @@ def _make_record(
 
 @app.post("/translate", response_model=TranslateResponse)
 async def translate(
-    user_id: Annotated[str, Depends(get_current_user_id)],
-    req: TranslateRequest = ...,
+    req: TranslateRequest,
+    user_id: Annotated[Optional[str], Depends(get_optional_user_id)],
 ):
+    if req.save and not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
     try:
         translations = await translate_to_multiple_languages(
             text=req.text,
@@ -246,6 +251,7 @@ async def translate(
             target_languages=req.target_languages,
         )
         if req.save:
+            assert user_id is not None
             record = _make_record(user_id, req.text, req.source_lang, translations)
             rid = record["id"]
             store_put(record)
@@ -399,7 +405,6 @@ async def list_translations(user_id: Annotated[str, Depends(get_current_user_id)
 
 from mangum import Mangum
 
-# API Gateway may prefix paths with /default — strip for routing
 _mangum = Mangum(app, lifespan="off", api_gateway_base_path="/default")
 
 

@@ -1,7 +1,4 @@
-// Translate API, OCR, grammar, dictionary, auth helpers
-
 const TRANSLATE_BASE = import.meta.env.VITE_TRANSLATE_API_URL || 'https://t3jb8c44xi.execute-api.us-east-1.amazonaws.com'
-// Partner OCR (image → text)
 const IMAGE_TO_TEXT_BASE = import.meta.env.VITE_IMAGE_TO_TEXT_API_URL || 'https://xkdvpogqt0.execute-api.us-east-1.amazonaws.com/prod'
 
 const AUTH_TOKEN_KEY = 'auth_token'
@@ -90,7 +87,6 @@ export async function saveNote(
   return res.json()
 }
 
-/** Save note body only (no MyMemory call). Omitting translations keeps existing on server. */
 export async function patchNote(
   id: string,
   originalText: string,
@@ -152,7 +148,6 @@ export interface ImageToTextResponse {
   language?: string
 }
 
-/** Shown when the OCR API refuses extraction (e.g. suspected PII) — do not surface raw API categories to users. */
 const OCR_BLOCKED_FRIENDLY =
   "We couldn’t extract text from this image. The service may block content that looks like personal details, IDs, or credentials. Try a plain photo of printed text, or an image without documents or account screens."
 
@@ -171,7 +166,6 @@ function ocrErrorMessage(
   return detail
 }
 
-// POST /ocr; if only jobId comes back, GET /ocr/:jobId
 export async function imageToText(file: File, language = 'eng'): Promise<string> {
   if (!IMAGE_TO_TEXT_BASE) throw new Error('Image-to-Text API URL not configured. Set VITE_IMAGE_TO_TEXT_API_URL in .env')
   const form = new FormData()
@@ -264,7 +258,6 @@ export interface AuthUser {
   name?: string
 }
 
-// Turn FastAPI errors into one string
 function apiErrorMessage(data: unknown, fallback: string): string {
   if (!data || typeof data !== 'object') return fallback
   const d = data as { detail?: unknown }

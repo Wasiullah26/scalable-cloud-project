@@ -1,5 +1,3 @@
-// Nicer messages for common API/auth errors
-
 const KNOWN_MESSAGES: { test: RegExp | string; message: string }[] = [
   { test: /invalid (email|username) or password/i, message: 'Invalid email or password.' },
   { test: /invalid credentials/i, message: 'Invalid email or password.' },

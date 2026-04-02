@@ -1,6 +1,5 @@
 import type { LanguageToolMatch } from '../api/services'
 
-/** Apply LanguageTool replacements from end to start so offsets stay valid. Skips matches with no replacement. */
 export function applyLanguageToolFixes(text: string, matches: LanguageToolMatch[]): string {
   const sorted = [...matches]
     .filter((m) => m.replacements && m.replacements.length > 0 && m.length > 0)

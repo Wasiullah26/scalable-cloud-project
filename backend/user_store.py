@@ -1,5 +1,3 @@
-"""Users in DynamoDB (USERS_TABLE, default users). PK email; GSI user_id-index."""
-
 import os
 import uuid
 from typing import Any, Dict, Optional

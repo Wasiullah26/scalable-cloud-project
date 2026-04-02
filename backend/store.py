@@ -1,5 +1,3 @@
-"""Saved translations in DynamoDB (table from TRANSLATIONS_TABLE, default translations)."""
-
 import os
 from typing import Any, Dict, List, Optional
 

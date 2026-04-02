@@ -1,4 +1,3 @@
-# Install deps and verify backend imports + front-end build (no cloud deploy).
 name: CI
 
 on:

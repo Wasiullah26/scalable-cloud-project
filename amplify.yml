@@ -1,5 +1,3 @@
-# Amplify Hosting — build from repo root (no cd between phases).
-# Env: App settings → VITE_TRANSLATE_API_URL, VITE_IMAGE_TO_TEXT_API_URL
 version: 1
 frontend:
   phases:

@@ -1,5 +1,3 @@
-"""JWT and passwords: bcrypt hashes the SHA-256 of the plain password (fits bcrypt byte limit)."""
-
 import hashlib
 import os
 

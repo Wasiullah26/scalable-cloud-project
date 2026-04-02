@@ -1,4 +1,3 @@
-"""Deploy this API to Lambda + HTTP API Gateway (boto3, no SAM). Run from backend/: python deploy.py"""
 
 import json
 import os
@@ -30,7 +29,6 @@ except ImportError:
 
 
 def _env_str(key: str, default: str) -> str:
-    """GitHub Actions often sets optional secrets to empty string; treat that as unset."""
     v = os.environ.get(key, "").strip()
     return v if v else default
 
@@ -45,15 +43,12 @@ LAMBDA_MEMORY = 256
 TRANSLATIONS_TABLE_NAME = _env_str("TRANSLATIONS_TABLE", "translations")
 USERS_TABLE_NAME = _env_str("USERS_TABLE", "users")
 
-# Set SKIP_DYNAMODB_ENSURE=1 when CI cannot call DynamoDB (e.g. Voclabs explicit deny from GitHub IPs)
-# but tables already exist. Then deploy only updates Lambda + API Gateway.
 _SKIP_DDB = os.environ.get("SKIP_DYNAMODB_ENSURE", "").strip().lower() in ("1", "true", "yes")
 
 ZIP_PATH = BACKEND_DIR / "lambda_deploy.zip"
 
 
 def _smoke_test_health(base_url: str, *, attempts: int = 4, delay_s: float = 3.0) -> None:
-    """GET /health on the deployed API. Surfaces 500s that browsers report as CORS errors."""
     url = base_url.rstrip("/") + "/health"
     last_err: Optional[str] = None
     for i in range(attempts):
@@ -312,9 +307,6 @@ def create_api_and_routes(apigw, lambda_client, function_arn, account_id):
         api_id = api["ApiId"]
         print(f"Created API: {API_NAME} ({api_id})")
 
-    # Do NOT use API Gateway–managed CORS. It answers OPTIONS at the edge and often conflicts
-    # with FastAPI's CORSMiddleware (duplicate / wrong ACAO → browser "CORS error"). Remove any
-    # existing GW CORS so OPTIONS + all methods go through Lambda (Mangum → FastAPI).
     cors_del_ok = False
     cors_del_code: Optional[str] = None
     try:

@@ -1,5 +1,3 @@
-"""MyMemory API — chunks long text (500 char limit)."""
-
 import httpx
 from typing import Dict, List, Optional
 

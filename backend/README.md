@@ -14,7 +14,7 @@ uvicorn app:app --reload --port 8000
 
 - **API docs:** http://localhost:8000/docs  
 - **Health:** http://localhost:8000/health  
-- **POST /translate:** send JSON `{"text": "Hello world"}` (optional: `source_lang`, `target_languages`). Response includes `id`; the translation is stored for CRUD.
+- **POST /translate:** same JSON for everyone (`text`, optional `source_lang`, `target_languages`, optional `save`). **No `Authorization` header** if `save` is false (or omitted). **`save: true` requires** `Authorization: Bearer <JWT>` and stores a note. A bad/expired token returns **401** even when `save` is false. CORS `*`.
 - **GET /translate/{id}:** read a saved translation.
 - **PUT /translate/{id}:** update (body: `{"text": "New text"}`; re-translates and updates).
 - **DELETE /translate/{id}:** delete a saved translation.
@@ -24,7 +24,7 @@ uvicorn app:app --reload --port 8000
 
 **Auth:** JWT login/signup (SettleUp-style): `POST /auth/signup`, `POST /auth/login`, `GET /auth/verify` (Bearer token). Users are stored in the DynamoDB `users` table. Set `JWT_SECRET` in `.env` for production.
 
-## Example
+## Example (no token — translate only)
 
 ```bash
 curl -X POST http://localhost:8000/translate \
@@ -33,6 +33,8 @@ curl -X POST http://localhost:8000/translate \
 ```
 
 Response: `{"original_text":"Hello world","source_lang":"en","translations":{"es":"...","fr":"...",...}}`
+
+To save a note: same URL with `-H "Authorization: Bearer YOUR_JWT"` and body including `"save": true`.
 
 ## Deploy to AWS (Lambda + API Gateway)
 
